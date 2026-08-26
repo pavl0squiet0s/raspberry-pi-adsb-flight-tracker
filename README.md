@@ -1,8 +1,44 @@
 # Raspberry Pi ADS-B Flight Tracker
 
-Lean, standalone ADS-B flight tracker for a Raspberry Pi 3B+ running Alpine
-Linux. The runtime is deliberately small: `dump1090`, `lighttpd`, the existing
-Chromium kiosk, and static HTML/CSS/JavaScript.
+An offline-first aircraft tracking appliance built around a Raspberry Pi 3B+.
+It receives live ADS-B broadcasts, renders aircraft on locally stored maps, and
+runs a purpose-built touchscreen interface without depending on an Internet
+connection. The software and hardware were designed together for quick startup,
+responsive map interaction on constrained hardware, and safe appliance-style
+shutdown.
+
+| Complete tracker | Tracker with antenna assembly |
+| --- | --- |
+| ![Custom 3D-printed ADS-B tracker enclosure with touchscreen and cable storage](docs/images/flight-tracker-enclosure.png) | ![Raspberry Pi ADS-B tracker, illuminated power switch, and separate antenna assembly](docs/images/flight-tracker-hardware.png) |
+
+## Hardware
+
+The electronics are housed in a custom-designed, 3D-printed enclosure with an
+integrated carrying handle, ventilation, touchscreen surround, and side cable
+storage. The main components are:
+
+- Raspberry Pi 3B+
+- Raspberry Pi Touch Display 2
+- 32 GB SanDisk USB boot drive
+- RTL-SDR receiver and external antenna
+- Illuminated latching toggle switch
+- 12 V external power supply
+- Custom delayed-shutdown and power-control circuit
+
+The power circuit uses a TRM01 time-delay relay module, IRF4905 P-channel
+MOSFET, 2N2222 transistor, resistor divider for the GPIO shutdown signal, and an
+LDO03C DC-DC converter. Turning the illuminated switch on powers the Pi normally.
+Turning it off does not abruptly remove power: the circuit signals a GPIO input,
+keeps the supply alive for roughly 20 seconds while Linux shuts down cleanly,
+then disconnects power after the delay expires. This gives the finished unit
+the behaviour of an appliance while protecting the USB boot filesystem.
+
+## Software overview
+
+The runtime is deliberately lean: Alpine Linux, `dump1090`, `lighttpd`, a
+Chromium kiosk, and static HTML/CSS/JavaScript. Regional maps are stored locally
+as PMTiles and prerendered raster tiles, avoiding network latency and keeping
+map interaction responsive on the Pi 3B+.
 
 ## Layout
 
