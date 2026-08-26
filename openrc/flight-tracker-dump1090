@@ -1,0 +1,31 @@
+#!/sbin/openrc-run
+
+name="flight-tracker-dump1090"
+description="Local RTL-SDR ADS-B decoder"
+command="/usr/bin/dump1090"
+command_user="flighttracker"
+command_background="yes"
+pidfile="/run/flight-tracker/dump1090.pid"
+output_log="/var/log/flight-tracker/dump1090.log"
+error_log="/var/log/flight-tracker/dump1090.log"
+supervisor="supervise-daemon"
+respawn_delay=3
+respawn_max=0
+
+depend() {
+    need localmount
+    after udev
+}
+
+start_pre() {
+    checkpath --directory --owner flighttracker:flighttracker --mode 0755 /run/flight-tracker
+    checkpath --file --owner flighttracker:flighttracker --mode 0644 /var/log/flight-tracker/dump1090.log
+    . /etc/flight-tracker/flight-tracker.conf
+    location=/var/lib/flight-tracker/mlat.json
+    saved_lat=$(sed -n 's/.*"receiver_lat":\([-0-9.]*\).*/\1/p' "$location" 2>/dev/null | head -n1)
+    saved_lon=$(sed -n 's/.*"receiver_lon":\([-0-9.]*\).*/\1/p' "$location" 2>/dev/null | head -n1)
+    [ -n "$saved_lat" ] && RECEIVER_LAT=$saved_lat
+    [ -n "$saved_lon" ] && RECEIVER_LON=$saved_lon
+    max_range_nm=$((MAX_RANGE_KM * 1000 / 1852))
+    command_args="--net --net-bo-port 30005 --net-bi-port 30004,30104 --write-json /run/flight-tracker --write-json-every 1 --json-location-accuracy 2 --lat ${RECEIVER_LAT} --lon ${RECEIVER_LON} --max-range ${max_range_nm} --gain -10 --adaptive-range --adaptive-burst --quiet"
+}

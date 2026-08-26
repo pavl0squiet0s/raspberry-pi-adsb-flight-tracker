@@ -1,0 +1,56 @@
+--- a/mlat/client/cli.py
++++ b/mlat/client/cli.py
+@@ -69,9 +69,21 @@
+                         help="Don't offer to use UDP transport for sync/mlat messages",
+                         action='store_false',
+                         default=True)
++    server.add_argument('--uuid-file',
++                        help="Path to the persistent receiver UUID sent to the MLAT server")
+ 
+     args = parser.parse_args()
+ 
++    receiver_uuid = None
++    if args.uuid_file:
++        try:
++            with open(args.uuid_file, encoding='ascii') as uuid_handle:
++                receiver_uuid = uuid_handle.readline().strip()
++        except OSError as error:
++            parser.error("cannot read --uuid-file: {0}".format(error))
++        if not receiver_uuid:
++            parser.error("--uuid-file is empty")
++
+     log("mlat-client {version} starting up", version=mlat.client.version.CLIENT_VERSION)
+ 
+     outputs = options.build_outputs(args)
+@@ -87,6 +99,7 @@
+                                                   'clock_frequency': options.clock_frequency(args),
+                                                   'clock_epoch': options.clock_epoch(args),
+                                                   'privacy': args.privacy},
++                                  receiver_uuid=receiver_uuid,
+                                   offer_zlib=True,
+                                   offer_udp=args.udp,
+                                   return_results=(len(outputs) > 0))
+--- a/mlat/client/jsonclient.py
++++ b/mlat/client/jsonclient.py
+@@ -179,9 +179,10 @@
+     heartbeat_interval = 120.0
+     inactivity_timeout = 60.0
+ 
+-    def __init__(self, host, port, handshake_data, offer_zlib, offer_udp, return_results):
++    def __init__(self, host, port, handshake_data, receiver_uuid, offer_zlib, offer_udp, return_results):
+         super().__init__(host, port)
+         self.handshake_data = handshake_data
++        self.receiver_uuid = receiver_uuid
+         self.offer_zlib = offer_zlib
+         self.offer_udp = offer_udp
+         self.return_results = return_results
+@@ -339,7 +340,8 @@
+                          'heartbeat': True,
+                          'return_results': self.return_results,
+                          'udp_transport': 2 if self.offer_udp else False,
+-                         'return_result_format': 'ecef'}
++                         'return_result_format': 'ecef',
++                         'uuid': self.receiver_uuid}
+         handshake_msg.update(self.handshake_data)
+         if DEBUG:
+             log("Handshake: {0}", handshake_msg)

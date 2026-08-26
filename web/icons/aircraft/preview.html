@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Normalised aircraft SVG masters</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172033; background: #edf1f7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 32px; }
+    header { max-width: 1100px; margin: 0 auto 24px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    header p { margin: 0; color: #536078; }
+    main { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 18px; max-width: 1100px; margin: auto; }
+    article { background: white; border: 1px solid #d7deea; border-radius: 14px; padding: 18px; box-shadow: 0 3px 12px #27334d12; }
+    h2 { margin: 0; font-size: 18px; }
+    code { display: block; margin-top: 4px; color: #647089; font-size: 13px; }
+    .views { display: flex; align-items: end; justify-content: center; gap: 24px; margin-top: 16px; }
+    figure { margin: 0; text-align: center; }
+    .large { width: 160px; height: 160px; padding: 8px; background: #e5e9f0; border-radius: 10px; }
+    .actual { width: 48px; height: 48px; padding: 0; background: #e5e9f0; border-radius: 4px; }
+    img { display: block; width: 100%; height: 100%; }
+    figcaption { margin-top: 6px; color: #69758b; font-size: 11px; }
+    footer { max-width: 1100px; margin: 24px auto 0; color: #647089; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Normalised aircraft SVG masters</h1>
+    <p>All masters use a 32×32 viewBox, point upwards, and are mirrored around x=16.</p>
+  </header>
+  <main>
+    <article><h2>Helicopter</h2><code>helicopter.svg</code><div class="views"><figure class="large"><img src="helicopter.svg" alt="Helicopter silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="helicopter.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Fighter</h2><code>fighter.svg</code><div class="views"><figure class="large"><img src="fighter.svg" alt="Fighter silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="fighter.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Military transport</h2><code>military-transport.svg</code><div class="views"><figure class="large"><img src="military-transport.svg" alt="Military transport silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="military-transport.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Light propeller</h2><code>light-prop.svg</code><div class="views"><figure class="large"><img src="light-prop.svg" alt="Light propeller aircraft silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="light-prop.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Turboprop</h2><code>turboprop.svg</code><div class="views"><figure class="large"><img src="turboprop.svg" alt="Turboprop silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="turboprop.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Business jet</h2><code>business-jet.svg</code><div class="views"><figure class="large"><img src="business-jet.svg" alt="Business jet silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="business-jet.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Regional / narrow-body jet</h2><code>narrowbody.svg</code><div class="views"><figure class="large"><img src="narrowbody.svg" alt="Regional or narrow-body jet silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="narrowbody.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Wide-body airliner</h2><code>widebody.svg</code><div class="views"><figure class="large"><img src="widebody.svg" alt="Wide-body airliner silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="widebody.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+    <article><h2>Super-heavy aircraft</h2><code>super-heavy.svg</code><div class="views"><figure class="large"><img src="super-heavy.svg" alt="Super-heavy aircraft silhouette"><figcaption>Enlarged</figcaption></figure><figure class="actual"><img src="super-heavy.svg" alt=""><figcaption>48 px</figcaption></figure></div></article>
+  </main>
+  <footer>This preview reads the SVG masters directly and is not part of the deployed Alpine web application.</footer>
+</body>
+</html>

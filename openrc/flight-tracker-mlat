@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+name="flight-tracker-mlat"
+description="Wi-Fi-gated optional ADSB.lol MLAT supervisor"
+command="/usr/libexec/flight-tracker/mlat-supervisor.sh"
+command_user="flighttracker"
+command_background="yes"
+pidfile="/run/flight-tracker/mlat-supervisor.pid"
+supervisor="supervise-daemon"
+respawn_delay=3
+respawn_max=0
+depend() { need localmount; after flight-tracker-dump1090 wpa_supplicant; }
+start_pre() {
+    checkpath --directory --owner flighttracker:flighttracker --mode 0755 /run/flight-tracker
+    checkpath --file --owner flighttracker:flighttracker --mode 0644 /var/log/flight-tracker/mlat-client.log
+}

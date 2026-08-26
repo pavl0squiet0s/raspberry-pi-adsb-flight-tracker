@@ -1,0 +1,38 @@
+# Generated Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments and editor/OS files
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+*~
+*.bak
+*.swp
+
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+config/flight-tracker.local.conf
+*.key
+*.pem
+*.p12
+*.pfx
+credentials*
+secrets*
+wpa_supplicant.conf
+NetworkManager/system-connections/
+
+# Generated/offline map data. Keep the small checksum manifests in Git.
+maps/*.pmtiles
+maps/*-raster-*/
+
+# Temporary downloads and generated staging files
+*.new
+*.tmp

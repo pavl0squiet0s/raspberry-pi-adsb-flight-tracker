@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Mamaloty</title>
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main id="app">
+    <div id="map" aria-label="Mapa samolotow"></div>
+    <header class="topbar">
+      <button id="settings-button" class="settings-button" type="button" aria-label="Ustawienia wyglądu"><i></i><i></i><i></i></button>
+      <button id="test-button" class="status-button test-button" type="button" aria-label="Diagnostyka ikon">TEST</button>
+      <button id="mlat-button" class="status-button mlat-button disabled" type="button" aria-label="Ustawienia MLAT">MLAT</button>
+      <button id="health" class="status-button adb-button waiting" type="button" tabindex="-1" aria-disabled="true" aria-label="Odbiornik ADB uruchamia się">ADB</button>
+      <button id="wifi-button" class="wifi-button checking" type="button" aria-label="Ustawienia Wi-Fi"><svg viewBox="0 0 32 32" aria-hidden="true"><path class="wifi-wave wave-3" d="M4.1 12.2a18 18 0 0 1 23.8 0l-2.8 3.1a13.8 13.8 0 0 0-18.2 0z"/><path class="wifi-wave wave-2" d="M9.1 17.6a10.5 10.5 0 0 1 13.8 0l-2.8 3.1a6.3 6.3 0 0 0-8.2 0z"/><path class="wifi-wave wave-1" d="M13.2 23a4.3 4.3 0 0 1 5.6 0L16 26.2z"/><path class="wifi-slash" d="M5.1 3.7 28.3 26.9l-2.2 2.2L2.9 5.9z"/></svg></button>
+      <button id="summary-button" class="count" type="button" aria-label="Podsumowanie dnia"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M15.666666667 6H16.333333333V6.333333333H15.666666667ZM13.666666667 6.333333333H18.333333333V7H13.666666667ZM15.666666667 7H16.333333333V7.333333333H15.666666667ZM15.333333333 7.333333333H16.666666667V7.666666667H15.333333333ZM15 7.666666667H17V8H15ZM14.666666667 8H17.333333333V11.666666667H14.666666667ZM4.333333333 11.666666667H27.666666667V13.666666667H4.333333333ZM5.333333333 13.666666667H26.666666667V14H5.333333333ZM6.666666667 14H25.333333333V14.333333333H6.666666667ZM8.333333333 14.333333333H23.666666667V14.666666667H8.333333333ZM14.666666667 14.666666667H17.333333333V18.666666667H14.666666667ZM15 18.666666667H17V20.333333333H15ZM14.666666667 20.333333333H17.333333333V20.666666667H14.666666667ZM13.333333333 20.666666667H18.666666667V21H13.333333333ZM12 21H20V21.333333333H12ZM11 21.333333333H21V22.666666667H11ZM12 22.666666667H15V23H12ZM17 22.666666667H20V23H17ZM13.333333333 23H14.666666667V23.333333333H13.333333333ZM17.333333333 23H18.666666667V23.333333333H17.333333333ZM15.666666667 22.666666667H16.333333333V24H15.666666667Z"/></svg><span id="aircraft-count">0</span></button>
+    </header>
+    <section id="empty-state" class="empty-state">Czekam na samoloty w zasięgu anteny…</section>
+    <aside id="details" class="details hidden" aria-live="polite">
+      <button id="close-details" aria-label="Zamknij">×</button>
+      <div class="detail-head">
+        <div class="aircraft-sketch"><svg viewBox="0 0 32 32" aria-hidden="true"><path id="d-silhouette-path" fill="currentColor"/></svg></div>
+        <div class="identity"><h1 id="d-flight">Nieznany lot</h1><strong id="d-airline">—</strong><p><span id="d-model">—</span> · <span id="d-registration">—</span></p></div>
+      </div>
+      <div id="detail-badges" class="detail-badges"></div>
+      <div class="look-card"><div id="look-compass" class="look-compass"><i>↑</i><b id="d-bearing">—</b></div><div><span>GDZIE PATRZEĆ</span><strong id="d-direction">—</strong><small id="d-elevation">Kąt wzniesienia: —</small></div></div>
+      <div class="route-strip">
+        <div><span>SKĄD</span><strong id="d-origin">—</strong></div><b>→</b><div><span>DOKĄD</span><strong id="d-destination">—</strong></div>
+      </div>
+      <div class="detail-groups">
+        <section class="detail-card motion-card">
+          <h2>LOT</h2>
+          <div id="altitude-trend" class="altitude-trend level"><i id="d-trend-arrow">→</i><div><span id="d-trend-label">Stabilnie</span><strong id="d-alt">—</strong><small id="d-rate">—</small></div></div>
+          <div class="mini-metrics"><div><span>PRĘDKOŚĆ</span><strong id="d-speed">—</strong></div><div><span>KIERUNEK</span><strong id="d-track">—</strong></div></div>
+        </section>
+        <section class="detail-card reception-card">
+          <h2>ODBIÓR</h2>
+          <div class="range-signal"><div><span>ODLEGŁOŚĆ</span><strong id="d-distance">—</strong></div><div><span>SYGNAŁ</span><div id="signal-bars" class="signal-bars"><i></i><i></i><i></i><i></i><i></i></div><small id="d-signal">—</small></div></div>
+          <div class="capacity"><span>MIEJSCA</span><strong id="d-capacity">—</strong></div>
+        </section>
+      </div>
+      <div class="technical"><span>Squawk <b id="d-squawk">—</b></span><span>Sygnał sprzed <b id="d-seen">—</b></span><small id="d-icao"></small></div>
+      <details id="advanced" class="advanced"><summary>Więcej</summary><div id="advanced-grid" class="advanced-grid"></div></details>
+    </aside>
+    <section id="summary-dialog" class="summary-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="summary-title"><div class="summary-card"><button id="summary-close" class="dialog-close" type="button" aria-label="Zamknij">×</button><h2 id="summary-title">Dzisiaj</h2><p id="summary-date"></p><div class="summary-grid"><div><span>SAMOLOTY</span><strong id="s-seen">0</strong></div><div><span>TERAZ</span><strong id="s-current">0</strong></div><div><span>NAJDALEJ</span><strong id="s-furthest">—</strong><small id="s-furthest-name"></small></div><div><span>NAJWYŻEJ</span><strong id="s-highest">—</strong><small id="s-highest-name"></small></div><div><span>NAJSILNIEJSZY SYGNAŁ</span><strong id="s-strongest">—</strong><small id="s-strongest-name"></small></div><div><span>SKUTECZNOŚĆ MLAT</span><strong id="s-mlat-percent">—</strong><small id="s-mlat">0 z 0 · teraz bez pozycji: 0</small></div></div></div></section>
+    <section id="settings-dialog" class="settings-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="settings-card"><button id="settings-close" class="dialog-close" type="button" aria-label="Zamknij">×</button><h2 id="settings-title">Wygląd mapy</h2><div class="setting-row"><span class="setting-label">Kolor samolotów</span><div id="aircraft-color" class="aircraft-color-choice" role="group" aria-label="Kolor samolotów"><button type="button" data-aircraft-color="#2563a8" aria-label="Niebieski"><i style="--swatch:#2563a8"></i></button><button type="button" data-aircraft-color="#16834b" aria-label="Zielony"><i style="--swatch:#16834b"></i></button><button type="button" data-aircraft-color="#e66a16" aria-label="Pomarańczowy"><i style="--swatch:#e66a16"></i></button><button type="button" data-aircraft-color="#374151" aria-label="Ciemnoszary"><i style="--swatch:#374151"></i></button></div></div><div class="setting-row"><label for="trail-width">Grubość śladu</label><div class="range-setting"><button class="range-step" type="button" data-range="trail-width" data-direction="-1" aria-label="Zmniejsz grubość śladu">−</button><input id="trail-width" type="range" min="1" max="7" step="1" value="4"><button class="range-step" type="button" data-range="trail-width" data-direction="1" aria-label="Zwiększ grubość śladu">+</button><output id="trail-width-value">4 px</output></div></div><div class="setting-row"><span class="setting-label">Kolor śladu</span><div id="trail-color-mode" class="trail-color-choice" role="group" aria-label="Kolor śladu"><button type="button" data-trail-color="airline" aria-label="Kolor linii lotniczej"><svg viewBox="0 0 60 36" aria-hidden="true"><path stroke="#e31b23" stroke-width="6" d="M5 7h50"/><path stroke="#f4c300" stroke-width="6" d="M5 14h50"/><path stroke="#169b62" stroke-width="6" d="M5 22h50"/><path stroke="#2474b5" stroke-width="6" d="M5 29h50"/></svg><small>Linie lotnicze</small></button><button type="button" data-trail-color="aircraft" aria-label="Kolor samolotu"><svg viewBox="0 0 60 36" aria-hidden="true"><path d="M5 18h50"/></svg><small>Samolot</small></button></div></div><div class="setting-row"><label for="aircraft-size">Rozmiar ikon samolotów</label><div class="range-setting"><button class="range-step" type="button" data-range="aircraft-size" data-direction="-1" aria-label="Zmniejsz rozmiar ikon samolotów">−</button><input id="aircraft-size" type="range" min="32" max="72" step="4" value="48"><button class="range-step" type="button" data-range="aircraft-size" data-direction="1" aria-label="Zwiększ rozmiar ikon samolotów">+</button><output id="aircraft-size-value">48 px</output></div></div><div class="setting-row"><label for="startup-zoom">Początkowe przybliżenie</label><div class="range-setting"><button class="range-step" type="button" data-range="startup-zoom" data-direction="-1" aria-label="Zmniejsz początkowe przybliżenie">−</button><input id="startup-zoom" type="range" min="5" max="12" step="1" value="8"><button class="range-step" type="button" data-range="startup-zoom" data-direction="1" aria-label="Zwiększ początkowe przybliżenie">+</button><output id="startup-zoom-value">8</output></div></div><button id="settings-reset" class="back-button" type="button">Przywróć domyślne</button></div></section>
+    <section id="test-dialog" class="test-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="test-title"><div class="test-card"><button id="test-close" class="dialog-close" type="button" aria-label="Zamknij">×</button><h2 id="test-title">Test i konfiguracja</h2><section class="receiver-location"><h3>Lokalizacja odbiornika</h3><form id="receiver-location-form"><label>Szerokość geograficzna<input id="receiver-lat" class="receiver-number" type="text" inputmode="none" readonly required></label><label>Długość geograficzna<input id="receiver-lon" class="receiver-number" type="text" inputmode="none" readonly required></label><label>Wysokość WGS84 (m)<input id="receiver-altitude" class="receiver-number" type="text" inputmode="none" readonly required></label><p id="receiver-location-message">Zmiany zaczną działać dopiero po zatwierdzeniu.</p><div class="receiver-location-actions"><button id="receiver-location-save" class="connect-button" type="submit">Zmień</button><button id="receiver-location-cancel" class="back-button" type="button">Anuluj</button><button id="receiver-location-reset" class="back-button" type="button">Przywróć domyślne</button></div></form></section><section class="icon-test-section"><h3>Diagnostyka ikon</h3><div id="icon-diagnostics" class="icon-diagnostics"></div></section></div><section id="receiver-numpad" class="receiver-numpad hidden" role="dialog" aria-modal="true" aria-labelledby="receiver-numpad-title"><div class="receiver-numpad-card"><h3 id="receiver-numpad-title">Wpisz wartość</h3><output id="receiver-numpad-value">0</output><p id="receiver-numpad-error"></p><div class="receiver-numpad-keys"><button type="button" data-number-key="7">7</button><button type="button" data-number-key="8">8</button><button type="button" data-number-key="9">9</button><button type="button" data-number-key="4">4</button><button type="button" data-number-key="5">5</button><button type="button" data-number-key="6">6</button><button type="button" data-number-key="1">1</button><button type="button" data-number-key="2">2</button><button type="button" data-number-key="3">3</button><button type="button" data-number-action="minus">−</button><button type="button" data-number-key="0">0</button><button type="button" data-number-action="decimal">.</button><button type="button" data-number-action="clear">Wyczyść</button><button type="button" data-number-action="backspace" aria-label="Cofnij">⌫</button><button type="button" data-number-action="cancel">Anuluj</button><button class="number-confirm" type="button" data-number-action="confirm">Potwierdź</button></div></div></section></section>
+    <section id="wifi-dialog" class="wifi-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="wifi-title">
+      <div class="wifi-card">
+        <button id="wifi-close" class="dialog-close" type="button" aria-label="Zamknij">×</button>
+        <h2 id="wifi-title">Połącz z Wi‑Fi</h2>
+        <p id="wifi-message">Wyszukiwanie dostępnych sieci…</p>
+        <button id="wifi-disconnect" class="disconnect-button hidden" type="button">Rozłącz Wi‑Fi</button>
+        <div id="wifi-networks" class="wifi-networks"></div>
+        <form id="wifi-form" class="wifi-form hidden">
+          <label>Sieć<input id="wifi-ssid" readonly></label>
+          <label id="wifi-password-label">Hasło<input id="wifi-password" type="password" autocomplete="off" spellcheck="false"></label>
+          <div id="wifi-keyboard" class="wifi-keyboard"></div>
+          <button class="connect-button" type="submit">Połącz</button>
+          <button id="wifi-back" class="back-button" type="button">Wybierz inną sieć</button>
+        </form>
+      </div>
+    </section>
+    <section id="mlat-dialog" class="mlat-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="mlat-title"><div class="mlat-card"><button id="mlat-close" class="dialog-close" type="button" aria-label="Zamknij">×</button><h2 id="mlat-title">MLAT</h2><p class="mlat-explainer">Wyznacza pozycję samolotu z czasu odbioru sygnału przez kilka anten.</p><div class="mlat-health-grid"><div><span>STATUS</span><strong id="mlat-state-value">Sprawdzanie…</strong></div><div><span>WYSOKOŚĆ WGS84</span><strong id="mlat-altitude-value">190 m</strong></div><div><span>POŁĄCZENIE</span><strong id="mlat-connection-age">—</strong></div><div><span>OSTATNIA SYNCHRONIZACJA</span><strong id="mlat-last-sync">—</strong></div></div><p id="mlat-issue" class="mlat-issue">Sprawdzanie stanu MLAT…</p></div></section>
+  </main>
+  <script src="/vendor/leaflet.js"></script>
+  <script src="/vendor/protomaps-leaflet.js"></script>
+  <script src="/i18n.js"></script>
+  <script src="/config.js"></script>
+  <script src="/features.js"></script>
+  <script src="/generated-aircraft-icons.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+#!/sbin/openrc-run
+name="flight-tracker-wifi-route"
+description="Restore DHCP route after kiosk Wi-Fi changes"
+command="/usr/libexec/flight-tracker/wifi-route-watch.sh"
+command_background="yes"
+pidfile="/run/flight-tracker/wifi-route-watch.pid"
+supervisor="supervise-daemon"
+respawn_delay=3
+respawn_max=0
+depend() { need localmount; after networking wpa_supplicant; }
+start_pre() { checkpath --directory --owner flighttracker:flighttracker --mode 0755 /run/flight-tracker; }

@@ -1,0 +1,17 @@
+{
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BackgroundModeEnabled": false,
+  "BrowserSignin": 0,
+  "DefaultBrowserSettingEnabled": false,
+  "DefaultNotificationsSetting": 2,
+  "MetricsReportingEnabled": false,
+  "NetworkPredictionOptions": 2,
+  "PasswordManagerEnabled": false,
+  "PromotionalTabsEnabled": false,
+  "RestoreOnStartup": 4,
+  "RestoreOnStartupURLs": ["http://127.0.0.1:8080/"],
+  "SearchSuggestEnabled": false,
+  "SyncDisabled": true,
+  "TranslateEnabled": false
+}

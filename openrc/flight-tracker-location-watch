@@ -1,0 +1,10 @@
+#!/sbin/openrc-run
+name="flight-tracker-location-watch"
+description="Apply saved receiver coordinate changes to dump1090"
+command="/usr/libexec/flight-tracker/location-watch.sh"
+command_background="yes"
+pidfile="/run/flight-tracker/location-watch.pid"
+supervisor="supervise-daemon"
+respawn_delay=3
+respawn_max=0
+depend() { need localmount; after flight-tracker-dump1090; }

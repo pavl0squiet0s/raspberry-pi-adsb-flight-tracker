@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+
+name="flight-tracker-web"
+description="Mamaloty local web interface"
+command="/usr/sbin/lighttpd"
+command_args="-D -f /etc/flight-tracker/lighttpd.conf"
+supervisor="supervise-daemon"
+respawn_delay=2
+respawn_max=0
+
+depend() {
+    need localmount
+    after flight-tracker-dump1090
+}
+
+start_pre() {
+    checkpath --directory --owner lighttpd:lighttpd --mode 0755 /run/lighttpd
+    checkpath --file --owner lighttpd:lighttpd --mode 0644 /var/log/flight-tracker/lighttpd.log
+    /usr/sbin/lighttpd -tt -f /etc/flight-tracker/lighttpd.conf
+}
