@@ -2,7 +2,7 @@
   "use strict";
   const language = localStorage.getItem("mamaloty.language") === "en" ? "en" : "pl";
   const translations = new Map(Object.entries({
-    "Mapa samolotow":"Aircraft map","Ustawienia wyglądu":"Appearance settings","Diagnostyka ikon":"Icon diagnostics",
+    "Mapa samolotow":"Aircraft map","Ustawienia wyglądu":"Appearance settings","Diagnostyka ikon":"Icon diagnostics","Jasność ekranu":"Screen brightness",
     "Ustawienia MLAT":"MLAT settings","Odbiornik ADB uruchamia się":"ADB receiver is starting","Ustawienia Wi-Fi":"Wi-Fi settings",
     "Podsumowanie dnia":"Daily summary","Czekam na samoloty w zasięgu anteny…":"Waiting for aircraft within antenna range…",
     "Zamknij":"Close","Nieznany lot":"Unknown flight","GDZIE PATRZEĆ":"WHERE TO LOOK","Kąt wzniesienia: —":"Elevation angle: —",
@@ -50,7 +50,7 @@
     "Samoloty regionalne i wąskokadłubowe: Embraer E-Jets, CRJ, Airbus A220/A320/A321 oraz Boeing 737/757.":"Regional and narrow-body aircraft: Embraer E-Jets, CRJ, Airbus A220/A320/A321 and Boeing 737/757.",
     "Duże samoloty dalekodystansowe: A330/A350 oraz Boeing 767/777/787 i 747.":"Large long-haul aircraft: A330/A350 and Boeing 767/777/787 and 747.",
     "Największe konstrukcje: Airbus A380, Boeing 747-8 oraz Antonow An-124/225.":"The largest aircraft: Airbus A380, Boeing 747-8 and Antonov An-124/225.",
-    "HELIKOPTER":"HELICOPTER","AWARIA":"EMERGENCY","Język interfejsu":"Interface language"
+    "HELIKOPTER":"HELICOPTER","AWARIA":"EMERGENCY","Język interfejsu":"Interface language","Zmniejsz jasność ekranu":"Decrease screen brightness","Zwiększ jasność ekranu":"Increase screen brightness"
   }));
   const patterns = [
     [/^Rozłącz (.+)$/,"Disconnect $1"],[/^Połączono z (.+)\.$/,"Connected to $1."],[/^Kod ATC · (.+)$/,"ATC code · $1"],[/^(.+) \(zależnie od układu\)$/,"$1 (depending on layout)"],

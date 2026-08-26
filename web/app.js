@@ -15,7 +15,7 @@
   let visualSettings=restoreVisualSettings();
   const runtimeMode = new URLSearchParams(window.location.search).get("mode") || cfg.mode;
   const $ = (id) => document.getElementById(id);
-  const state = { selected: null, aircraft: new Map(), markers: new Map(), trails: new Map(), trailColors: new Map(), lines: new Map(), db: new Map(), types: null, routes: new Map(), aircraftInfo: new Map(), daily:features.restoreDaily(localStorage), mlatConfig:null, savedReceiver:null, unpositionedCount:0, remotePositions:new Map(), nearbyHelicopters:new Map(), positionLookupAt:0, nearbyLookupAt:0 };
+  const state = { selected: null, aircraft: new Map(), markers: new Map(), trails: new Map(), trailColors: new Map(), lines: new Map(), db: new Map(), types: null, routes: new Map(), aircraftInfo: new Map(), daily:features.restoreDaily(localStorage), mlatConfig:null, savedReceiver:null, unpositionedCount:0, remotePositions:new Map(), nearbyHelicopters:new Map(), positionLookupAt:0, nearbyLookupAt:0, enrichmentLookupAt:0 };
   const airlines = {
     AAL:"American Airlines", AFR:"Air France", AUA:"Austrian Airlines", BAW:"British Airways",
     BEL:"Brussels Airlines", BTI:"airBaltic", DLH:"Lufthansa", EIN:"Aer Lingus",
@@ -270,19 +270,10 @@
     state.selected = hex;
     renderDetails();
     enrichAircraft(hex);
-    loadRoute(state.aircraft.get(hex)?.flight);
-    loadAircraftInfo(hex);
-  }
-  async function loadAircraftInfo(hex) {
-    if (!hex || state.aircraftInfo.has(hex)) return;
-    state.aircraftInfo.set(hex, {loading:true});
-    renderDetails();
-    try {
-      const response = await fetch(`/api/aircraft.py?hex=${encodeURIComponent(hex)}`, {cache:"no-store"});
-      const data = await response.json();
-      state.aircraftInfo.set(hex, response.ok && data.found ? {info:data} : {info:null});
-    } catch (_) { state.aircraftInfo.set(hex, {info:null}); }
-    if (state.selected === hex) renderDetails();
+    const aircraft=state.aircraft.get(hex),key=routeKey(aircraft?.flight);
+    if(!state.aircraftInfo.has(hex))state.aircraftInfo.set(hex,{loading:true});
+    if(key&&!state.routes.has(key))state.routes.set(key,{loading:true});
+    refreshEnrichmentCache(true);
   }
   function routeKey(flight) { return (flight || "").trim().toUpperCase(); }
   function airportLabel(airport) {
@@ -290,17 +281,30 @@
     const code = airport.iata || airport.icao;
     return [airport.city || airport.name, code].filter(Boolean).join(" · ");
   }
-  async function loadRoute(flight) {
-    const key = routeKey(flight);
-    if (!/^[A-Z0-9]{3,8}$/.test(key) || state.routes.has(key)) return;
-    state.routes.set(key, {loading:true});
-    renderDetails();
+  function showAirport(target,airport) {
+    $(target).textContent=airportLabel(airport);
+    const flag=$(`${target}-flag`),country=(airport?.country||"").toLowerCase();
+    const valid=/^[a-z]{2}$/.test(country);
+    flag.classList.toggle("hidden",!valid);
+    flag.style.backgroundImage=valid?`url("/flags/${country}.svg")`:"";
+    flag.setAttribute("aria-label",valid?country.toUpperCase():"");
+  }
+  async function refreshEnrichmentCache(force=false) {
+    if(!force&&Date.now()-state.enrichmentLookupAt<5000)return;
+    state.enrichmentLookupAt=Date.now();
+    const bounds=map.getBounds(),visible=[...state.aircraft.values()].filter(a=>bounds.contains([a.lat,a.lon])).slice(0,64);
+    if(!visible.length)return;
+    const items=visible.map(a=>`${a.hex}:${routeKey(a.flight)}`).join(",");
     try {
-      const response = await fetch(`/api/route.py?callsign=${encodeURIComponent(key)}`, {cache:"no-store"});
-      const data = await response.json();
-      state.routes.set(key, response.ok && data.found ? {route:data} : {route:null});
-    } catch (_) { state.routes.set(key, {route:null}); }
-    if (routeKey(state.aircraft.get(state.selected)?.flight) === key) renderDetails();
+      const response=await fetch(`/api/enrichment.py?items=${encodeURIComponent(items)}`,{cache:"no-store"});
+      const data=await response.json(); if(!response.ok)return;
+      for(const item of data.aircraft||[]) {
+        const hex=item.hex.toLowerCase(),callsign=item.callsign;
+        if(item.aircraft_cached)state.aircraftInfo.set(hex,{info:item.aircraft});
+        if(callsign&&item.route_cached)state.routes.set(callsign,{route:item.route});
+      }
+      renderDetails();
+    } catch(_) {}
   }
   function renderDetails() {
     const a = state.aircraft.get(state.selected);
@@ -319,12 +323,16 @@
     if (route?.loading) {
       $("d-origin").textContent = "Sprawdzanie…";
       $("d-destination").textContent = "Sprawdzanie…";
+      $("d-origin-flag").classList.add("hidden");
+      $("d-destination-flag").classList.add("hidden");
     } else if (route?.route) {
-      $("d-origin").textContent = airportLabel(route.route.origin);
-      $("d-destination").textContent = airportLabel(route.route.destination);
+      showAirport("d-origin",route.route.origin);
+      showAirport("d-destination",route.route.destination);
     } else {
       $("d-origin").textContent = "Brak publicznej trasy";
       $("d-destination").textContent = routeKey(a.flight) ? `Kod ATC · ${routeKey(a.flight)}` : "Brak kodu lotu";
+      $("d-origin-flag").classList.add("hidden");
+      $("d-destination-flag").classList.add("hidden");
     }
     $("d-alt").textContent = value(typeof a.alt_baro === "number" ? a.alt_baro * .3048 : NaN, "m");
     $("d-speed").textContent = value(typeof a.gs === "number" ? a.gs * 1.852 : NaN, "km/h");
@@ -454,6 +462,7 @@
       if (unpositioned.length && Date.now()-state.positionLookupAt>=5000) lookupOnlinePositions(unpositioned);
       state.unpositionedCount=unpositioned.length;
       state.aircraft = positioned;
+      refreshEnrichmentCache();
       const visualHexes=new Set([...state.markers.keys(),...state.lines.keys(),...state.trails.keys()]);
       for(const hex of visualHexes) if(!positioned.has(hex)) removeAircraftVisuals(hex);
       for (const a of positioned.values()) {
@@ -719,9 +728,31 @@
     $("startup-zoom").value=visualSettings.startupZoom;
     applyVisualSettings(false);
   }
-  $("settings-button").addEventListener("click",()=>$("settings-dialog").classList.remove("hidden"));
+  let brightnessTimer;
+  async function loadBrightness() {
+    try {
+      const response=await fetch("/api/brightness.py",{cache:"no-store"}),data=await response.json();
+      if(!response.ok)return;
+      $("screen-brightness").value=data.percent;
+      $("screen-brightness-value").textContent=`${data.percent}%`;
+    } catch(_) {}
+  }
+  function changeBrightness() {
+    const percent=Number($("screen-brightness").value);
+    $("screen-brightness-value").textContent=`${percent}%`;
+    clearTimeout(brightnessTimer);
+    brightnessTimer=setTimeout(async()=>{
+      try {
+        const response=await fetch("/api/brightness.py",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`percent=${percent}`,cache:"no-store"});
+        const data=await response.json();
+        if(response.ok)$("screen-brightness-value").textContent=`${data.percent}%`;
+      } catch(_) {}
+    },150);
+  }
+  $("settings-button").addEventListener("click",()=>{$("settings-dialog").classList.remove("hidden");loadBrightness();});
   $("settings-close").addEventListener("click",()=>$("settings-dialog").classList.add("hidden"));
   for(const id of ["trail-width","aircraft-size","startup-zoom"]) $(id).addEventListener("input",()=>applyVisualSettings());
+  $("screen-brightness").addEventListener("input",changeBrightness);
   for(const button of document.querySelectorAll("[data-aircraft-color]")) button.addEventListener("click",()=>{visualSettings.aircraftColor=button.dataset.aircraftColor;populateVisualSettings();applyVisualSettings();});
   for(const button of document.querySelectorAll("[data-trail-color]")) button.addEventListener("click",()=>{visualSettings.trailColorMode=button.dataset.trailColor;populateVisualSettings();applyVisualSettings();});
   for(const button of document.querySelectorAll(".range-step")) button.addEventListener("click",()=>{

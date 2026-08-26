@@ -7,9 +7,10 @@ connection. The software and hardware were designed together for quick startup,
 responsive map interaction on constrained hardware, and safe appliance-style
 shutdown.
 
-| Complete tracker | Tracker with antenna assembly |
-| --- | --- |
-| ![Custom 3D-printed ADS-B tracker enclosure with touchscreen and cable storage](docs/images/flight-tracker-enclosure.png) | ![Raspberry Pi ADS-B tracker, illuminated power switch, and separate antenna assembly](docs/images/flight-tracker-hardware.png) |
+<p>
+  <img src="docs/images/flight-tracker-enclosure.png" width="48%" alt="Custom 3D-printed ADS-B tracker enclosure with touchscreen and cable storage">
+  <img src="docs/images/flight-tracker-hardware.png" width="47%" alt="Raspberry Pi ADS-B tracker, illuminated power switch, and separate antenna assembly">
+</p>
 
 ## Hardware
 
@@ -40,6 +41,15 @@ The runtime is deliberately lean: Alpine Linux, `dump1090`, `lighttpd`, a
 Chromium kiosk, and static HTML/CSS/JavaScript. Regional maps are stored locally
 as PMTiles and prerendered raster tiles, avoiding network latency and keeping
 map interaction responsive on the Pi 3B+.
+
+When online, a separate supervised worker prewarms aircraft and route details
+for active positioned aircraft. It uses ADSBDB's combined lookup, permits only
+one upstream request every five seconds, caches aircraft for 30 days and routes
+for 24 hours, caches misses for six hours, and backs off for 30 minutes if the
+provider rate-limits it. The touchscreen reads only the persistent local cache,
+so opening an aircraft card is immediate and previously cached details remain
+available offline. Airport country flags are bundled locally from the
+MIT-licensed [flag-icons](https://github.com/lipis/flag-icons) project.
 
 ## Layout
 

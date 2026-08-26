@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+
+name="flight-tracker-enrichment"
+description="Rate-limited ADSBDB enrichment cache warmer"
+command="/usr/libexec/flight-tracker/enrichment-worker.py"
+command_user="flighttracker:flighttracker"
+pidfile="/run/flight-tracker/enrichment.pid"
+command_background="yes"
+supervisor="supervise-daemon"
+respawn_delay=10
+respawn_max=0
+
+depend() {
+    need localmount
+    after flight-tracker-dump1090 wpa_supplicant
+}
+
+start_pre() {
+    checkpath --directory --owner flighttracker:flighttracker --mode 0755 /run/flight-tracker
+    checkpath --directory --owner lighttpd:flighttracker --mode 2770 /var/lib/flight-tracker
+}

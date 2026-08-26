@@ -1,0 +1,11 @@
+#!/sbin/openrc-run
+
+name="flight-tracker-brightness"
+description="Restore touchscreen brightness and grant narrow backlight access"
+command="/usr/libexec/flight-tracker/brightness-restore.sh"
+command_background="no"
+
+depend() {
+    need localmount
+    before flight-tracker-web
+}

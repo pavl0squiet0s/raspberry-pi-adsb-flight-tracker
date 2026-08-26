@@ -15,6 +15,7 @@ dump1090_changed=false
 mlat_changed=false
 wifi_route_changed=false
 location_watch_changed=false
+enrichment_changed=false
 same_file "$src/openrc/flight-tracker-dump1090" /etc/init.d/flight-tracker-dump1090 || dump1090_changed=true
 same_file "$conf" /etc/flight-tracker/flight-tracker.conf || dump1090_changed=true
 same_file "$src/scripts/mlat-supervisor.sh" /usr/libexec/flight-tracker/mlat-supervisor.sh || mlat_changed=true
@@ -23,6 +24,8 @@ same_file "$src/scripts/wifi-route-watch.sh" /usr/libexec/flight-tracker/wifi-ro
 same_file "$src/openrc/flight-tracker-wifi-route" /etc/init.d/flight-tracker-wifi-route || wifi_route_changed=true
 same_file "$src/scripts/location-watch.sh" /usr/libexec/flight-tracker/location-watch.sh || location_watch_changed=true
 same_file "$src/openrc/flight-tracker-location-watch" /etc/init.d/flight-tracker-location-watch || location_watch_changed=true
+same_file "$src/scripts/enrichment-worker.py" /usr/libexec/flight-tracker/enrichment-worker.py || enrichment_changed=true
+same_file "$src/openrc/flight-tracker-enrichment" /etc/init.d/flight-tracker-enrichment || enrichment_changed=true
 
 apk add --no-cache dump1090 rtl-sdr lighttpd python3 py3-pip
 python3 "$src/scripts/build-aircraft-icons.py"
@@ -77,23 +80,28 @@ addgroup flighttracker plugdev >/dev/null 2>&1 || true
 addgroup lighttpd flighttracker >/dev/null 2>&1 || true
 addgroup flighttracker lighttpd >/dev/null 2>&1 || true
 
-install -d -m 0755 /etc/flight-tracker /etc/chromium/policies/managed /etc/chromium-browser/policies/managed /usr/share/flight-tracker/web/vendor /usr/share/flight-tracker/web/maps /usr/libexec/flight-tracker /var/log/flight-tracker
+install -d -m 0755 /etc/flight-tracker /etc/chromium/policies/managed /etc/chromium-browser/policies/managed /usr/share/flight-tracker/web/vendor /usr/share/flight-tracker/web/maps /usr/share/flight-tracker/web/flags /usr/libexec/flight-tracker /var/log/flight-tracker
 install -d -o lighttpd -g flighttracker -m 2770 /var/lib/flight-tracker
 chown root:root /var/log/flight-tracker
 install -m 0644 "$conf" /etc/flight-tracker/flight-tracker.conf
 install -m 0644 "$src/lighttpd/flight-tracker.conf" /etc/flight-tracker/lighttpd.conf
 install -m 0644 "$src/web/index.html" "$src/web/style.css" "$src/web/app.js" "$src/web/i18n.js" "$src/web/features.js" "$src/web/generated-aircraft-icons.js" /usr/share/flight-tracker/web/
 install -m 0755 "$src/cgi-bin/wifi.py" /usr/libexec/flight-tracker/wifi.py
-install -m 0755 "$src/cgi-bin/route.py" /usr/libexec/flight-tracker/route.py
-install -m 0755 "$src/cgi-bin/aircraft.py" /usr/libexec/flight-tracker/aircraft.py
 install -m 0755 "$src/cgi-bin/mlat.py" /usr/libexec/flight-tracker/mlat.py
 install -m 0755 "$src/cgi-bin/position.py" /usr/libexec/flight-tracker/position.py
+install -m 0755 "$src/cgi-bin/enrichment.py" /usr/libexec/flight-tracker/enrichment.py
+install -m 0755 "$src/cgi-bin/brightness.py" /usr/libexec/flight-tracker/brightness.py
+rm -f /usr/libexec/flight-tracker/route.py /usr/libexec/flight-tracker/aircraft.py
 install -m 0755 "$src/scripts/mlat-supervisor.sh" /usr/libexec/flight-tracker/mlat-supervisor.sh
 install -m 0755 "$src/scripts/kiosk-browser.sh" /usr/libexec/flight-tracker/kiosk-browser
 install -m 0755 "$src/scripts/wifi-route-watch.sh" /usr/libexec/flight-tracker/wifi-route-watch.sh
 install -m 0755 "$src/scripts/location-watch.sh" /usr/libexec/flight-tracker/location-watch.sh
+install -m 0755 "$src/scripts/enrichment-worker.py" /usr/libexec/flight-tracker/enrichment-worker.py
+install -m 0755 "$src/scripts/brightness-restore.sh" /usr/libexec/flight-tracker/brightness-restore.sh
 install -m 0644 "$src/config/chromium-policy.json" /etc/chromium/policies/managed/mamaloty.json
 install -m 0644 "$src/config/chromium-policy.json" /etc/chromium-browser/policies/managed/mamaloty.json
+cp -R "$src/web/flags/." /usr/share/flight-tracker/web/flags/
+find /usr/share/flight-tracker/web/flags -type f -exec chmod 0644 {} \;
 [ -s /var/lib/flight-tracker/feeder-uuid ] || cat /proc/sys/kernel/random/uuid > /var/lib/flight-tracker/feeder-uuid
 chown flighttracker:flighttracker /var/lib/flight-tracker/feeder-uuid
 chmod 0640 /var/lib/flight-tracker/feeder-uuid
@@ -174,11 +182,16 @@ install -m 0755 "$src/openrc/flight-tracker-web" /etc/init.d/flight-tracker-web
 install -m 0755 "$src/openrc/flight-tracker-mlat" /etc/init.d/flight-tracker-mlat
 install -m 0755 "$src/openrc/flight-tracker-wifi-route" /etc/init.d/flight-tracker-wifi-route
 install -m 0755 "$src/openrc/flight-tracker-location-watch" /etc/init.d/flight-tracker-location-watch
+install -m 0755 "$src/openrc/flight-tracker-enrichment" /etc/init.d/flight-tracker-enrichment
+install -m 0755 "$src/openrc/flight-tracker-brightness" /etc/init.d/flight-tracker-brightness
 rc-update add flight-tracker-dump1090 default >/dev/null 2>&1 || true
 rc-update add flight-tracker-web default >/dev/null 2>&1 || true
 rc-update add flight-tracker-mlat default >/dev/null 2>&1 || true
 rc-update add flight-tracker-wifi-route default >/dev/null 2>&1 || true
 rc-update add flight-tracker-location-watch default >/dev/null 2>&1 || true
+rc-update add flight-tracker-enrichment default >/dev/null 2>&1 || true
+rc-update add flight-tracker-brightness default >/dev/null 2>&1 || true
+/usr/libexec/flight-tracker/brightness-restore.sh
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger --subsystem-match=usb 2>/dev/null || true
 
@@ -217,6 +230,9 @@ if [ "$mlat_changed" = true ] || ! rc-service flight-tracker-mlat status >/dev/n
 fi
 if [ "$location_watch_changed" = true ] || ! rc-service flight-tracker-location-watch status >/dev/null 2>&1; then
     rc-service flight-tracker-location-watch restart
+fi
+if [ "$enrichment_changed" = true ] || ! rc-service flight-tracker-enrichment status >/dev/null 2>&1; then
+    rc-service flight-tracker-enrichment restart
 fi
 
 echo "Installed. UI: http://127.0.0.1:${WEB_PORT}/"
