@@ -20,7 +20,8 @@ storage. The main components are:
 - Raspberry Pi 3B+
 - Raspberry Pi Touch Display 2
 - 32 GB SanDisk USB boot drive
-- RTL-SDR receiver and external antenna
+- [FlightAware Pro Stick Plus USB SDR ADS-B receiver](https://thepihut.com/products/flightaware-pro-stick-plus-usb-sdr-ads-b-receiver)
+- [60 cm 1090 MHz ADS-B antenna](https://thepihut.com/products/60cm-1090mhz-antenna-for-ads-b)
 - Illuminated latching toggle switch
 - 12 V external power supply
 - Custom delayed-shutdown and power-control circuit
