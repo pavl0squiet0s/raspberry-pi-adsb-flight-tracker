@@ -352,6 +352,19 @@
       if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.routeStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.routeStarted));delete performanceSamples.routeStarted;}
     }
   }
+  async function preloadAllFlags() {
+    try {
+      const response=await fetch("/flags.json",{cache:"force-cache"}),countries=await response.json();
+      let index=0;
+      const warmBatch=async()=>{
+        if(navigator.scheduling?.isInputPending?.()){setTimeout(warmBatch,250);return;}
+        const batch=countries.slice(index,index+6);index+=batch.length;
+        await Promise.all(batch.map(country=>{const image=new Image();image.src=`/flags/${country}.svg`;return image.decode?.().catch(()=>{});}));
+        if(index<countries.length)setTimeout(warmBatch,150);
+      };
+      setTimeout(warmBatch,1000);
+    } catch(_) {}
+  }
   function signalEnrichmentPriority(aircraft) {
     if(!aircraft)return;
     fetch(`/api/enrichment.py?priority=${encodeURIComponent(`${aircraft.hex}:${routeKey(aircraft.flight)}`)}`,{cache:"no-store",keepalive:true}).catch(()=>{});
@@ -888,5 +901,6 @@
   const pollWifiStatus=async()=>{if(!dialogOpen())await updateWifiStatus();setTimeout(pollWifiStatus,10000);};
   const pollMlatStatus=async()=>{if(!dialogOpen())await updateMlatStatus();setTimeout(pollMlatStatus,10000);};
   renderKeyboard(); pollWifiStatus(); pollMlatStatus();
-  refresh();
+  setTimeout(preloadAllFlags,2000);
+  refreshEnrichmentCache(true).finally(refresh);
 })();

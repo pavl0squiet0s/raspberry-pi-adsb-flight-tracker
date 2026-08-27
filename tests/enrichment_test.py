@@ -72,6 +72,10 @@ class EnrichmentTests(unittest.TestCase):
         pairs = [("BBBBBB", "OLD1"), ("CCCCCC", ""), ("DDDDDD", "NEW1"), selected]
         self.assertEqual(WORKER.ordered_pairs(pairs, selected, known, 0), [selected, ("DDDDDD", "NEW1"), ("BBBBBB", "OLD1"), ("CCCCCC", "")])
 
+    def test_selection_remains_priority_between_feed_snapshots(self):
+        selected = ("AAAAAA", "RYR3UZ")
+        self.assertEqual(WORKER.ordered_pairs([("BBBBBB", "BAW1")], selected, set(), 0)[0], selected)
+
     def test_queue_rotates_known_aircraft(self):
         pairs = [("AAAAAA", "A1"), ("BBBBBB", "B1"), ("CCCCCC", "C1")]
         self.assertEqual(WORKER.ordered_pairs(pairs, None, set(pairs), 1), [pairs[1], pairs[2], pairs[0]])

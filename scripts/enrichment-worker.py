@@ -130,7 +130,7 @@ def ordered_pairs(pairs, priority=None, seen=None, cursor=0):
     seen = seen or set()
     unique = list(dict.fromkeys(pairs))
     ordered = []
-    if priority in unique:
+    if priority:
         ordered.append(priority)
     remaining = [pair for pair in unique if pair != priority]
     new = [pair for pair in remaining if pair not in seen]

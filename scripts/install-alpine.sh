@@ -103,6 +103,8 @@ install -m 0644 "$src/config/chromium-policy.json" /etc/chromium/policies/manage
 install -m 0644 "$src/config/chromium-policy.json" /etc/chromium-browser/policies/managed/mamaloty.json
 cp -R "$src/web/flags/." /usr/share/flight-tracker/web/flags/
 find /usr/share/flight-tracker/web/flags -type f -exec chmod 0644 {} \;
+python3 "$src/scripts/build-flag-manifest.py" "$src/web/flags" /usr/share/flight-tracker/web/flags.json
+chmod 0644 /usr/share/flight-tracker/web/flags.json
 [ -s /var/lib/flight-tracker/feeder-uuid ] || cat /proc/sys/kernel/random/uuid > /var/lib/flight-tracker/feeder-uuid
 chown flighttracker:flighttracker /var/lib/flight-tracker/feeder-uuid
 chmod 0640 /var/lib/flight-tracker/feeder-uuid
