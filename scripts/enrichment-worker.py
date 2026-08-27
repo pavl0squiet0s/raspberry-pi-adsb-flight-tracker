@@ -150,8 +150,27 @@ def fetch(hex_code, callsign):
         "Accept": "application/json",
         "User-Agent": "RaspberryPiADSBFlightTracker/1.0 (+https://github.com/pavl0squiet0s/raspberry-pi-adsb-flight-tracker)",
     })
-    with urlopen(request, timeout=10) as response:
-        return parse_response(json.load(response))
+    try:
+        with urlopen(request, timeout=10) as response:
+            return parse_response(json.load(response))
+    except HTTPError as error:
+        if error.code != 404 or not callsign:
+            raise
+    # Some valid flights use an aircraft hex absent from ADSBDB. The combined
+    # endpoint then returns 404 before looking up its callsign, so resolve the
+    # route independently instead of leaving the details pane waiting.
+    route_request = Request(
+        "https://api.adsbdb.com/v0/callsign/" + quote(callsign),
+        headers=request.headers,
+    )
+    try:
+        with urlopen(route_request, timeout=10) as response:
+            _, route = parse_response(json.load(response))
+            return None, route
+    except HTTPError as error:
+        if error.code == 404:
+            return None, None
+        raise
 
 
 def stop(_signal, _frame):

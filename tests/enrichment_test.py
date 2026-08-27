@@ -1,9 +1,12 @@
 #!/usr/bin/python3
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 SPEC = importlib.util.spec_from_file_location("enrichment_worker", "scripts/enrichment-worker.py")
 WORKER = importlib.util.module_from_spec(SPEC)
@@ -22,6 +25,24 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(aircraft["manufacturer"], "Boeing")
         self.assertEqual(route["origin"]["country"], "GB")
         self.assertEqual(route["destination"]["iata"], "WAW")
+
+    def test_unknown_aircraft_falls_back_to_callsign_route(self):
+        route_payload = json.dumps({"response": {"flightroute": {
+            "origin": {"iata_code": "DUB", "icao_code": "EIDW", "municipality": "Dublin", "name": "Dublin Airport", "country_iso_name": "IE"},
+            "destination": {"iata_code": "MAN", "icao_code": "EGCC", "municipality": "Manchester", "name": "Manchester Airport", "country_iso_name": "GB"},
+        }}}).encode()
+        unknown = HTTPError("aircraft", 404, "unknown aircraft", {}, io.BytesIO(b'{}'))
+        with patch.object(WORKER, "urlopen", side_effect=[unknown, io.BytesIO(route_payload)]) as mocked:
+            aircraft, route = WORKER.fetch("4CAE66", "RYR82FQ")
+        self.assertIsNone(aircraft)
+        self.assertEqual(route["origin"]["iata"], "DUB")
+        self.assertIn("/callsign/RYR82FQ", mocked.call_args_list[1].args[0].full_url)
+
+    def test_unknown_aircraft_and_callsign_resolve_negative_cache(self):
+        aircraft_404 = HTTPError("aircraft", 404, "unknown aircraft", {}, io.BytesIO(b'{}'))
+        callsign_404 = HTTPError("callsign", 404, "unknown callsign", {}, io.BytesIO(b'{}'))
+        with patch.object(WORKER, "urlopen", side_effect=[aircraft_404, callsign_404]):
+            self.assertEqual(WORKER.fetch("4CAE66", "RYR82FQ"), (None, None))
 
     def test_only_recent_positioned_aircraft_are_queued(self):
         with tempfile.TemporaryDirectory() as directory:

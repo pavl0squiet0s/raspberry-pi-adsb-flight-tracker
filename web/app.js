@@ -345,10 +345,6 @@
       state.aircraftInfo.set(hex.toLowerCase(),{info:item.data,resolved:true,stale:(item.expires||0)<=now});
     for(const [callsign,item] of Object.entries(data.routes||{}))if(Object.hasOwn(item,"data")) {
       state.routes.set(callsign,{route:item.data,resolved:true,stale:(item.expires||0)<=now});
-      for(const airport of [item.data?.origin,item.data?.destination]) {
-        const country=(airport?.country||"").toLowerCase();
-        if(/^[a-z]{2}$/.test(country)){const image=new Image();image.src=`/flags/${country}.svg`;image.decode?.().catch(()=>{});}
-      }
       if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.routeStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.routeStarted));delete performanceSamples.routeStarted;}
     }
   }
