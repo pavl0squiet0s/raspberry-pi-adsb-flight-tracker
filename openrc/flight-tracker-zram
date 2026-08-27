@@ -1,0 +1,24 @@
+#!/sbin/openrc-run
+
+name="flight-tracker-zram"
+description="Compressed swap safety net for the flight-tracker kiosk"
+depend() {
+    need localmount
+    before flight-tracker-web
+}
+
+start() {
+    ebegin "Starting flight-tracker zram"
+    /usr/libexec/flight-tracker/zram-swap.sh start
+    result=$?
+    [ "$result" -eq 0 ] && mark_service_started
+    eend "$result"
+}
+
+stop() {
+    ebegin "Stopping flight-tracker zram"
+    /usr/libexec/flight-tracker/zram-swap.sh stop
+    result=$?
+    [ "$result" -eq 0 ] && mark_service_stopped
+    eend "$result"
+}

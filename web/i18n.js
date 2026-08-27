@@ -1,6 +1,7 @@
 (() => {
   "use strict";
-  const language = localStorage.getItem("mamaloty.language") === "en" ? "en" : "pl";
+  let language = localStorage.getItem("mamaloty.language") === "en" ? "en" : "pl";
+  const textState=new WeakMap(),attributeState=new WeakMap();
   const translations = new Map(Object.entries({
     "Mapa samolotow":"Aircraft map","Ustawienia wyglądu":"Appearance settings","Diagnostyka ikon":"Icon diagnostics","Jasność ekranu":"Screen brightness",
     "Ustawienia MLAT":"MLAT settings","Odbiornik ADB uruchamia się":"ADB receiver is starting","Ustawienia Wi-Fi":"Wi-Fi settings",
@@ -50,7 +51,7 @@
     "Samoloty regionalne i wąskokadłubowe: Embraer E-Jets, CRJ, Airbus A220/A320/A321 oraz Boeing 737/757.":"Regional and narrow-body aircraft: Embraer E-Jets, CRJ, Airbus A220/A320/A321 and Boeing 737/757.",
     "Duże samoloty dalekodystansowe: A330/A350 oraz Boeing 767/777/787 i 747.":"Large long-haul aircraft: A330/A350 and Boeing 767/777/787 and 747.",
     "Największe konstrukcje: Airbus A380, Boeing 747-8 oraz Antonow An-124/225.":"The largest aircraft: Airbus A380, Boeing 747-8 and Antonov An-124/225.",
-    "HELIKOPTER":"HELICOPTER","AWARIA":"EMERGENCY","Język interfejsu":"Interface language","Zmniejsz jasność ekranu":"Decrease screen brightness","Zwiększ jasność ekranu":"Increase screen brightness"
+    "HELIKOPTER":"HELICOPTER","AWARIA":"EMERGENCY","Język interfejsu":"Interface language","Zmniejsz jasność ekranu":"Decrease screen brightness","Zwiększ jasność ekranu":"Increase screen brightness","Responsywność":"Responsiveness","Zbieranie pomiarów…":"Collecting measurements…"
   }));
   const patterns = [
     [/^Rozłącz (.+)$/,"Disconnect $1"],[/^Połączono z (.+)\.$/,"Connected to $1."],[/^Kod ATC · (.+)$/,"ATC code · $1"],[/^(.+) \(zależnie od układu\)$/,"$1 (depending on layout)"],
@@ -67,16 +68,34 @@
     for(const [pattern,replacement] of patterns)if(pattern.test(value))return value.replace(pattern,replacement);
     return value;
   }
+  function translated(value) { return language==="en"?translate(value):value; }
   function translateNode(node) {
-    if(language!=="en")return;
     if(node.nodeType===Node.TEXT_NODE) {
       const raw=node.nodeValue,trimmed=raw.trim(); if(!trimmed)return;
-      const result=translate(trimmed); if(result!==trimmed)node.nodeValue=raw.replace(trimmed,result);
+      let state=textState.get(node);
+      if(!state||raw!==state.applied)state={original:raw,applied:raw};
+      const originalTrimmed=state.original.trim(),result=translated(originalTrimmed);
+      state.applied=state.original.replace(originalTrimmed,result);textState.set(node,state);
+      if(raw!==state.applied)node.nodeValue=state.applied;
       return;
     }
     if(node.nodeType!==Node.ELEMENT_NODE)return;
-    for(const attribute of ["aria-label","title"])if(node.hasAttribute(attribute))node.setAttribute(attribute,translate(node.getAttribute(attribute)));
+    let states=attributeState.get(node);if(!states){states={};attributeState.set(node,states);}
+    for(const attribute of ["aria-label","title"])if(node.hasAttribute(attribute)){
+      const raw=node.getAttribute(attribute),previous=states[attribute];
+      const state=!previous||raw!==previous.applied?{original:raw,applied:raw}:previous;
+      state.applied=translated(state.original);states[attribute]=state;
+      if(raw!==state.applied)node.setAttribute(attribute,state.applied);
+    }
     for(const child of node.childNodes)translateNode(child);
+  }
+  function apply(root=document.body){if(root)translateNode(root);}
+  function setLanguage(next) {
+    if(next!=="pl"&&next!=="en"||next===language)return;
+    language=next;localStorage.setItem("mamaloty.language",language);document.documentElement.lang=language;
+    api.language=language;api.locale=language==="en"?"en-GB":"pl-PL";
+    for(const button of document.querySelectorAll("[data-language]")){const active=button.dataset.language===language;button.classList.toggle("active",active);button.classList.remove("pending");button.setAttribute("aria-pressed",String(active));button.disabled=false;}
+    apply();dispatchEvent(new CustomEvent("mamaloty-language-change",{detail:{language}}));
   }
   function addSelector() {
     const firstRow=document.querySelector(".settings-card .setting-row"); if(!firstRow)return;
@@ -86,11 +105,15 @@
     for(const button of row.querySelectorAll("button")) {
       button.classList.toggle("active",button.dataset.language===language);
       button.setAttribute("aria-pressed",String(button.dataset.language===language));
-      button.addEventListener("click",()=>{localStorage.setItem("mamaloty.language",button.dataset.language);location.reload();});
+      button.addEventListener("click",()=>{
+        if(button.dataset.language===language)return;
+        for(const choice of row.querySelectorAll("button")){const active=choice===button;choice.classList.toggle("active",active);choice.classList.toggle("pending",active);choice.setAttribute("aria-pressed",String(active));choice.disabled=true;}
+        requestAnimationFrame(()=>setLanguage(button.dataset.language));
+      });
     }
   }
   document.documentElement.lang=language;
-  addSelector(); translateNode(document.body);
-  if(language==="en")new MutationObserver(records=>{for(const record of records){if(record.type==="characterData")translateNode(record.target);for(const node of record.addedNodes)translateNode(node);}}).observe(document.body,{subtree:true,childList:true,characterData:true});
-  window.MamalotyI18n={language,locale:language==="en"?"en-GB":"pl-PL"};
+  const api={language,locale:language==="en"?"en-GB":"pl-PL",apply,setLanguage,translate};
+  window.MamalotyI18n=api;
+  addSelector(); apply();
 })();

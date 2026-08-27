@@ -42,6 +42,28 @@ class EnrichmentTests(unittest.TestCase):
             self.assertEqual(WORKER.load_cache(path), data)
             self.assertEqual(path.stat().st_mode & 0o777, 0o640)
 
+    def test_recent_priority_pair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "priority.json"
+            path.write_text(json.dumps({"hex":"40621D","callsign":"EZY858W","requested":WORKER.time.time()}))
+            self.assertEqual(WORKER.priority_pair(path), ("40621D", "EZY858W"))
+
+    def test_expired_priority_pair_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "priority.json"
+            path.write_text(json.dumps({"hex":"40621D","callsign":"EZY858W","requested":WORKER.time.time()-31}))
+            self.assertIsNone(WORKER.priority_pair(path))
+
+    def test_queue_prioritises_selection_then_new_callsigns(self):
+        selected = ("AAAAAA", "SEL1")
+        known = {("BBBBBB", "OLD1"), ("CCCCCC", "")}
+        pairs = [("BBBBBB", "OLD1"), ("CCCCCC", ""), ("DDDDDD", "NEW1"), selected]
+        self.assertEqual(WORKER.ordered_pairs(pairs, selected, known, 0), [selected, ("DDDDDD", "NEW1"), ("BBBBBB", "OLD1"), ("CCCCCC", "")])
+
+    def test_queue_rotates_known_aircraft(self):
+        pairs = [("AAAAAA", "A1"), ("BBBBBB", "B1"), ("CCCCCC", "C1")]
+        self.assertEqual(WORKER.ordered_pairs(pairs, None, set(pairs), 1), [pairs[1], pairs[2], pairs[0]])
+
 
 if __name__ == "__main__":
     unittest.main()

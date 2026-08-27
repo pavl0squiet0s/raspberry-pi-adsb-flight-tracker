@@ -12,7 +12,8 @@ from urllib.request import Request, urlopen
 
 FEED = Path(os.environ.get("ENRICHMENT_FEED", "/run/flight-tracker/aircraft.json"))
 CACHE = Path(os.environ.get("ENRICHMENT_CACHE", "/var/lib/flight-tracker/enrichment.json"))
-POLL_SECONDS = 5
+PRIORITY = Path(os.environ.get("ENRICHMENT_PRIORITY", "/var/lib/flight-tracker/enrichment-priority.json"))
+POLL_SECONDS = 1
 REQUEST_INTERVAL = 5
 AIRCRAFT_TTL = 30 * 86400
 ROUTE_TTL = 24 * 3600
@@ -94,6 +95,37 @@ def active_pairs(path=FEED):
     return pairs
 
 
+def priority_pair(path=PRIORITY):
+    try:
+        item = json.loads(path.read_text())
+        if time.time() - float(item.get("requested", 0)) > 30:
+            return None
+        hex_code = str(item.get("hex", "")).upper()
+        callsign = str(item.get("callsign", "")).upper()
+        if HEX_RE.fullmatch(hex_code) and (not callsign or CALLSIGN_RE.fullmatch(callsign)):
+            return hex_code, callsign
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+def ordered_pairs(pairs, priority=None, seen=None, cursor=0):
+    """Selected first, then new callsigns, then a fair rotation of known traffic."""
+    seen = seen or set()
+    unique = list(dict.fromkeys(pairs))
+    ordered = []
+    if priority in unique:
+        ordered.append(priority)
+    remaining = [pair for pair in unique if pair != priority]
+    new = [pair for pair in remaining if pair not in seen]
+    new.sort(key=lambda pair: (not bool(pair[1]), pair[0]))
+    known = [pair for pair in remaining if pair in seen]
+    if known:
+        offset = cursor % len(known)
+        known = known[offset:] + known[:offset]
+    return ordered + new + known
+
+
 def fetch(hex_code, callsign):
     url = "https://api.adsbdb.com/v0/aircraft/" + quote(hex_code)
     if callsign:
@@ -117,10 +149,16 @@ def main():
     cache = load_cache()
     retry_after = {}
     requested_at = 0.0
+    seen_pairs = set()
+    queue_cursor = 0
     while RUNNING:
         now = int(time.time())
         candidate = None
-        for hex_code, callsign in active_pairs():
+        active = active_pairs()
+        priority = priority_pair()
+        pairs = ordered_pairs(active, priority, seen_pairs, queue_cursor)
+        seen_pairs.update(active)
+        for hex_code, callsign in pairs:
             needs_aircraft = not fresh(cache["aircraft"], hex_code, now)
             needs_route = bool(callsign) and not fresh(cache["routes"], callsign, now)
             key = f"{hex_code}:{callsign}"
@@ -134,6 +172,7 @@ def main():
         if wait > 0:
             time.sleep(wait)
         hex_code, callsign, needs_aircraft, needs_route, key = candidate
+        queue_cursor += 1
         requested_at = time.monotonic()
         try:
             aircraft_data, route_data = fetch(hex_code, callsign)

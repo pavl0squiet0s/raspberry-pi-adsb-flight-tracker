@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 CACHE = Path(os.environ.get("ENRICHMENT_CACHE", "/var/lib/flight-tracker/enrichment.json"))
+PRIORITY = Path(os.environ.get("ENRICHMENT_PRIORITY", "/var/lib/flight-tracker/enrichment-priority.json"))
 HEX_RE = re.compile(r"^[0-9A-F]{6}$")
 CALLSIGN_RE = re.compile(r"^[A-Z0-9]{3,8}$")
 
@@ -25,7 +26,18 @@ if os.environ.get("REMOTE_ADDR", "") not in {"127.0.0.1", "::1", "::ffff:127.0.0
     reply({"error": "Dostęp tylko z ekranu kiosku"}, "403 Forbidden")
     sys.exit(0)
 
-items = parse_qs(os.environ.get("QUERY_STRING", "")).get("items", [""])[0].split(",")[:64]
+query = parse_qs(os.environ.get("QUERY_STRING", ""))
+items = query.get("items", [""])[0].split(",")[:64]
+priority = query.get("priority", [""])[0]
+priority_hex, _, priority_callsign = priority.partition(":")
+priority_hex, priority_callsign = priority_hex.upper(), priority_callsign.upper()
+if HEX_RE.fullmatch(priority_hex) and (not priority_callsign or CALLSIGN_RE.fullmatch(priority_callsign)):
+    try:
+        temporary = PRIORITY.with_suffix(".new")
+        temporary.write_text(json.dumps({"hex": priority_hex, "callsign": priority_callsign, "requested": time.time()}))
+        temporary.replace(PRIORITY)
+    except OSError:
+        pass
 try:
     cache = json.loads(CACHE.read_text())
 except (OSError, ValueError, TypeError):
@@ -40,11 +52,13 @@ for raw in items:
     item = {"hex": hex_code, "callsign": callsign if CALLSIGN_RE.fullmatch(callsign) else ""}
     aircraft = cache.get("aircraft", {}).get(hex_code, {})
     route = cache.get("routes", {}).get(item["callsign"], {}) if item["callsign"] else {}
-    if aircraft.get("expires", 0) > now:
+    if "data" in aircraft:
         item["aircraft_cached"] = True
         item["aircraft"] = aircraft.get("data")
-    if route.get("expires", 0) > now:
+        item["aircraft_stale"] = aircraft.get("expires", 0) <= now
+    if "data" in route:
         item["route_cached"] = True
         item["route"] = route.get("data")
+        item["route_stale"] = route.get("expires", 0) <= now
     results.append(item)
 reply({"aircraft": results})

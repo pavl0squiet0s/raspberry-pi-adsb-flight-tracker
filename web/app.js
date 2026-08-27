@@ -16,6 +16,12 @@
   const runtimeMode = new URLSearchParams(window.location.search).get("mode") || cfg.mode;
   const $ = (id) => document.getElementById(id);
   const state = { selected: null, aircraft: new Map(), markers: new Map(), trails: new Map(), trailColors: new Map(), lines: new Map(), db: new Map(), types: null, routes: new Map(), aircraftInfo: new Map(), daily:features.restoreDaily(localStorage), mlatConfig:null, savedReceiver:null, unpositionedCount:0, remotePositions:new Map(), nearbyHelicopters:new Map(), positionLookupAt:0, nearbyLookupAt:0, enrichmentLookupAt:0 };
+  const performanceSamples={refresh:[],trails:[],enrichment:[],longTasks:[],counters:{refreshCoalesced:0,enrichmentCoalesced:0,wifiCoalesced:0,mlatCoalesced:0},selectionLatency:[]};
+  const recordPerformance=(name,started)=>{const samples=performanceSamples[name],duration=performance.now()-started;samples.push(Math.round(duration));if(samples.length>60)samples.shift();};
+  if(globalThis.PerformanceObserver)try{new PerformanceObserver(list=>{for(const entry of list.getEntries()){performanceSamples.longTasks.push(Math.round(entry.duration));if(performanceSamples.longTasks.length>60)performanceSamples.longTasks.shift();}}).observe({type:"longtask",buffered:true});}catch(_){}
+  window.MamalotyPerformance={samples:performanceSamples,snapshot:()=>structuredClone(performanceSamples)};
+  const translateUi=root=>window.MamalotyI18n.apply(root);
+  const dialogOpen=()=>Boolean(document.querySelector('[role="dialog"]:not(.hidden)'));
   const airlines = {
     AAL:"American Airlines", AFR:"Air France", AUA:"Austrian Airlines", BAW:"British Airways",
     BEL:"Brussels Airlines", BTI:"airBaltic", DLH:"Lufthansa", EIN:"Aer Lingus",
@@ -119,7 +125,14 @@
           while(next<urls.length){const url=urls[next++];try{await fetch(url,{cache:"force-cache"});}catch(_){}}
         }));
       };
-      rasterLayer.once("load",()=>setTimeout(()=>warmZoom(map.getZoom()-1).then(()=>warmZoom(map.getZoom()+1)),250));
+      let warmGeneration=0,warmTimer;
+      const scheduleWarm=(delay=2000)=>{clearTimeout(warmTimer);const generation=++warmGeneration;warmTimer=setTimeout(async()=>{
+        if(generation!==warmGeneration||dialogOpen()){scheduleWarm(3000);return;}
+        await warmZoom(map.getZoom()-1);
+        if(generation===warmGeneration&&!dialogOpen())await warmZoom(map.getZoom()+1);
+      },delay);};
+      addEventListener("pointerdown",()=>scheduleWarm(3000),{passive:true});
+      rasterLayer.once("load",()=>scheduleWarm());
     } else fastOfflineLayer(`/maps/${mapName}.pmtiles`).addTo(map);
   } else {
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -143,7 +156,7 @@
   });
   map.on("moveend zoomend",()=>{
     mapBusy=false;
-    updateTrails(Date.now()/1000);
+    updateTrails(Date.now()/1000,true);
   });
   function applyReceiverLocation(config,recenter=false) {
     const lat=config?.receiver_lat,lon=config?.receiver_lon;
@@ -167,6 +180,10 @@
     ["super-heavy","Superciężki","Największe konstrukcje: Airbus A380, Boeing 747-8 oraz Antonow An-124/225."]
   ];
   function renderIconDiagnostics() {
+    let performanceBox=$("performance-diagnostics");
+    if(!performanceBox){const section=document.createElement("section"),heading=document.createElement("h3");section.className="performance-diagnostics";performanceBox=document.createElement("pre");performanceBox.id="performance-diagnostics";heading.textContent="Responsywność";section.append(heading,performanceBox);$("test-dialog").querySelector(".receiver-location").before(section);}
+    const percentile=samples=>samples.length?[...samples].sort((a,b)=>a-b)[Math.floor((samples.length-1)*.95)]:0;
+    performanceBox.textContent=[`Odświeżanie p95: ${percentile(performanceSamples.refresh)} ms`,`Ślady p95: ${percentile(performanceSamples.trails)} ms`,`Dane lotu p95: ${percentile(performanceSamples.enrichment)} ms`,`Długie zadania: ${performanceSamples.longTasks.length}`,`Trasa po dotknięciu p95: ${percentile(performanceSamples.selectionLatency)} ms`,`Scalone żądania: ${Object.values(performanceSamples.counters).reduce((sum,value)=>sum+value,0)}`].join("\n");
     const svgNamespace = "http://www.w3.org/2000/svg";
     $("icon-diagnostics").replaceChildren(...iconDiagnostics.map(([key,title,description]) => {
       const item=document.createElement("article"); item.className="icon-diagnostic";
@@ -175,6 +192,8 @@
       const copy=document.createElement("div"), heading=document.createElement("h3"), detail=document.createElement("p");
       heading.textContent=title; detail.textContent=description; copy.append(heading,detail); item.append(svg,copy); return item;
     }));
+    translateUi($("icon-diagnostics"));
+    translateUi(performanceBox.parentElement);
   }
   function aircraftClass(a) {
     return features.aircraftVisualClass(a);
@@ -267,13 +286,15 @@
     if (state.selected === hex) renderDetails();
   }
   function selectAircraft(hex) {
+    performanceSamples.selectionStarted=performance.now();
     state.selected = hex;
     renderDetails();
     enrichAircraft(hex);
     const aircraft=state.aircraft.get(hex),key=routeKey(aircraft?.flight);
     if(!state.aircraftInfo.has(hex))state.aircraftInfo.set(hex,{loading:true});
     if(key&&!state.routes.has(key))state.routes.set(key,{loading:true});
-    refreshEnrichmentCache(true);
+    if(key&&state.routes.get(key)?.resolved){performanceSamples.selectionLatency.push(0);delete performanceSamples.selectionStarted;}
+    refreshEnrichmentCache(true,true);
   }
   function routeKey(flight) { return (flight || "").trim().toUpperCase(); }
   function airportLabel(airport) {
@@ -289,27 +310,39 @@
     flag.style.backgroundImage=valid?`url("/flags/${country}.svg")`:"";
     flag.setAttribute("aria-label",valid?country.toUpperCase():"");
   }
-  async function refreshEnrichmentCache(force=false) {
+  let enrichmentInFlight=false,enrichmentPending=false,enrichmentRetryTimer;
+  async function refreshEnrichmentCache(force=false,priority=false) {
     if(!force&&Date.now()-state.enrichmentLookupAt<5000)return;
+    if(enrichmentInFlight){performanceSamples.counters.enrichmentCoalesced+=1;enrichmentPending=enrichmentPending||force;return;}
     state.enrichmentLookupAt=Date.now();
     const bounds=map.getBounds(),visible=[...state.aircraft.values()].filter(a=>bounds.contains([a.lat,a.lon])).slice(0,64);
     if(!visible.length)return;
     const items=visible.map(a=>`${a.hex}:${routeKey(a.flight)}`).join(",");
+    const selected=priority&&state.selected?state.aircraft.get(state.selected):null;
+    const priorityItem=selected?`&priority=${encodeURIComponent(`${selected.hex}:${routeKey(selected.flight)}`)}`:"";
+    const started=performance.now(); enrichmentInFlight=true;
     try {
-      const response=await fetch(`/api/enrichment.py?items=${encodeURIComponent(items)}`,{cache:"no-store"});
+      const response=await fetch(`/api/enrichment.py?items=${encodeURIComponent(items)}${priorityItem}`,{cache:"no-store"});
       const data=await response.json(); if(!response.ok)return;
       for(const item of data.aircraft||[]) {
         const hex=item.hex.toLowerCase(),callsign=item.callsign;
-        if(item.aircraft_cached)state.aircraftInfo.set(hex,{info:item.aircraft});
-        if(callsign&&item.route_cached)state.routes.set(callsign,{route:item.route});
+        if(item.aircraft_cached)state.aircraftInfo.set(hex,{info:item.aircraft,resolved:true});
+        if(callsign&&item.route_cached){state.routes.set(callsign,{route:item.route,resolved:true,stale:item.route_stale});if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.selectionStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.selectionStarted));if(performanceSamples.selectionLatency.length>60)performanceSamples.selectionLatency.shift();delete performanceSamples.selectionStarted;}}
       }
       renderDetails();
+      const selectedRoute=selected&&state.routes.get(routeKey(selected.flight));
+      if(selected&&!selectedRoute?.resolved){clearTimeout(enrichmentRetryTimer);enrichmentRetryTimer=setTimeout(()=>refreshEnrichmentCache(true,true),750);}
     } catch(_) {}
+    finally {
+      enrichmentInFlight=false; recordPerformance("enrichment",started);
+      if(enrichmentPending){enrichmentPending=false;queueMicrotask(()=>refreshEnrichmentCache(true));}
+    }
   }
   function renderDetails() {
     const a = state.aircraft.get(state.selected);
     $("details").classList.toggle("hidden", !a);
-    for (const marker of state.markers.values()) marker.getElement()?.classList.remove("selected");
+    if(renderDetails.selected&&renderDetails.selected!==state.selected)state.markers.get(renderDetails.selected)?.getElement()?.classList.remove("selected");
+    renderDetails.selected=state.selected;
     if (!a) return;
     state.markers.get(a.hex)?.getElement()?.classList.add("selected");
     $("d-silhouette-path").setAttribute("d", iconPaths[aircraftClass(a)]);
@@ -350,8 +383,8 @@
     $("signal-bars").querySelectorAll("i").forEach((bar, index) => bar.classList.toggle("active", index < signalBars));
     $("d-seen").textContent = value(a.seen, "s", 1);
     $("d-icao").textContent = `ICAO: ${a.hex.toUpperCase()}`;
-    const badges=features.badges(a);
-    $("detail-badges").replaceChildren(...badges.map(([label,kind]) => { const item=document.createElement("span"); item.className=`badge ${kind}`; item.textContent=label; return item; }));
+    const badges=features.badges(a),badgeKey=JSON.stringify(badges);
+    if($("detail-badges").dataset.key!==badgeKey){$("detail-badges").dataset.key=badgeKey;$("detail-badges").replaceChildren(...badges.map(([label,kind]) => { const item=document.createElement("span"); item.className=`badge ${kind}`; item.textContent=label; return item; }));}
     $("details").classList.toggle("emergency",features.emergency(a));
     const look=features.look(cfg.receiver,a,state.mlatConfig?.terrain_m,state.mlatConfig?.antenna_height_m);
     $("d-bearing").textContent=look?`${Math.round(look.bearing)}°`:"—";
@@ -360,6 +393,7 @@
     $("look-compass").style.transform=look?`rotate(${look.bearing}deg)`:"";
     $("d-bearing").style.transform=look?`rotate(${-look.bearing}deg)`:"";
     renderAdvanced(a);
+    translateUi($("details"));
   }
   function renderAdvanced(a) {
     const fields=[
@@ -370,10 +404,13 @@
       ["QNH",a.nav_qnh,"hPa",1],["Przechylenie",a.roll,"°",1],["Kategoria wake",a.wakeCategory,""],
       ["Dokładność nawigacji",a.nic_baro ?? a.nic,"NIC"]
     ].filter(([,v]) => v!==undefined && v!==null && v!=="ground" && v!=="");
-    $("advanced-grid").replaceChildren(...fields.map(([label,v,unit,decimals=0]) => { const box=document.createElement("div"),span=document.createElement("span"),strong=document.createElement("strong"); span.textContent=label; strong.textContent=typeof v==="number"?`${v.toFixed(decimals)}${unit?` ${unit}`:""}`:`${v}${unit?` ${unit}`:""}`; box.append(span,strong); return box; }));
+    const fieldKey=JSON.stringify(fields);
+    if($("advanced-grid").dataset.key!==fieldKey){$("advanced-grid").dataset.key=fieldKey;$("advanced-grid").replaceChildren(...fields.map(([label,v,unit,decimals=0]) => { const box=document.createElement("div"),span=document.createElement("span"),strong=document.createElement("strong"); span.textContent=label; strong.textContent=typeof v==="number"?`${v.toFixed(decimals)}${unit?` ${unit}`:""}`:`${v}${unit?` ${unit}`:""}`; box.append(span,strong); return box; }));}
     $("advanced").classList.toggle("hidden",fields.length===0);
   }
-  function updateTrails(now) {
+  let trailsRenderedAt=0;
+  function updateTrails(now,force=false) {
+    const started=performance.now();
     const cutoff = now - cfg.trailMinutes * 60;
     for (const a of state.aircraft.values()) {
       const trail = state.trails.get(a.hex) || [];
@@ -382,6 +419,8 @@
       state.trails.set(a.hex, trail);
       state.trailColors.set(a.hex, trailColor(a));
     }
+    if(!force&&now-trailsRenderedAt<2)return;
+    trailsRenderedAt=now;
     // Keep every age band visibly connected to the next. Very faint old bands
     // made the darker sections on either side look like unrelated orphan lines.
     const opacity = [.32,.40,.48,.60,.72];
@@ -413,6 +452,7 @@
       lines.forEach((line, i) => { line.setLatLngs(bands[i]); line.setStyle({opacity:opacity[i],color,weight:visualSettings.trailWidth}); });
       state.lines.set(hex, lines);
     }
+    recordPerformance("trails",started);
   }
   function removeAircraftVisuals(hex) {
     state.markers.get(hex)?.remove();
@@ -422,8 +462,12 @@
     state.trails.delete(hex);
     state.trailColors.delete(hex);
   }
+  let refreshInFlight=false,refreshTimer;
   async function refresh() {
-    if(mapBusy)return;
+    if(refreshInFlight){performanceSamples.counters.refreshCoalesced+=1;return;}
+    if(mapBusy||dialogOpen()){refreshTimer=setTimeout(refresh,250);return;}
+    refreshInFlight=true;
+    const started=performance.now();
     try {
       const response = await fetch(`/data/aircraft.json?t=${Date.now()}`, {cache:"no-store"});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -470,15 +514,16 @@
         if (!marker) {
           marker = L.marker([a.lat,a.lon], {icon:planeIcon(a), keyboard:false}).addTo(map);
           marker._aircraftKind = aircraftClass(a);
+          marker._lat=a.lat;marker._lon=a.lon;marker._rotation=displayTrack(a);marker._opacity=markerOpacity(a);
           marker.on("click", () => selectAircraft(a.hex));
           state.markers.set(a.hex, marker);
           enrichAircraft(a.hex);
         } else {
-          marker.setLatLng([a.lat,a.lon]);
+          if(marker._lat!==a.lat||marker._lon!==a.lon){marker.setLatLng([a.lat,a.lon]);marker._lat=a.lat;marker._lon=a.lon;}
           const svg = marker.getElement()?.querySelector("svg");
-          if (svg) svg.style.transform = `rotate(${displayTrack(a)}deg)`;
+          const rotation=displayTrack(a);if(svg&&marker._rotation!==rotation){svg.style.transform=`rotate(${rotation}deg)`;marker._rotation=rotation;}
         }
-        marker.setOpacity(markerOpacity(a));
+        const opacity=markerOpacity(a);if(marker._opacity!==opacity){marker.setOpacity(opacity);marker._opacity=opacity;}
       }
       $("aircraft-count").textContent = positioned.size;
       $("empty-state").classList.toggle("hidden", positioned.size > 0);
@@ -487,11 +532,15 @@
       $("health").setAttribute("aria-label", "Odbiornik ADB działa");
       updateTrails(data.now || Date.now()/1000);
       renderDetails();
+      translateUi(document.querySelector(".topbar"));
     } catch (error) {
       $("health").className = "status-button adb-button error";
       $("health").setAttribute("aria-label", "Brak danych z odbiornika ADB");
       $("empty-state").classList.remove("hidden");
       $("empty-state").textContent = "Odbiornik ADS-B jest odłączony lub jeszcze się uruchamia.";
+    } finally {
+      refreshInFlight=false;recordPerformance("refresh",started);
+      clearTimeout(refreshTimer);refreshTimer=setTimeout(refresh,Math.max(0,1000-(performance.now()-started)));
     }
   }
   async function lookupOnlinePositions(hexes) {
@@ -521,8 +570,10 @@
     if(seconds<3600)return `${Math.floor(seconds/60)} min temu`;
     return `${Math.floor(seconds/3600)} godz. temu`;
   }
-  async function updateMlatStatus() {
-    try {
+  let mlatStatusPromise=null,wifiStatusPromise=null;
+  function updateMlatStatus() {
+    if(mlatStatusPromise){performanceSamples.counters.mlatCoalesced+=1;return mlatStatusPromise;}
+    mlatStatusPromise=(async()=>{try {
       const data=await mlatRequest("status"); state.mlatConfig=data.config||null;
       applyReceiverLocation(data.config);
       const label=mlatLabels[data.state]||data.state;
@@ -542,10 +593,12 @@
       $("mlat-state-value").textContent="Błąd"; $("mlat-issue").textContent=error.message;
       $("mlat-button").className="status-button mlat-button error";
       $("mlat-button").setAttribute("aria-label","Stan MLAT: błąd");
-    }
+    } finally {translateUi($("mlat-dialog"));translateUi(document.querySelector(".topbar"));}})().finally(()=>{mlatStatusPromise=null;});
+    return mlatStatusPromise;
   }
-  async function updateWifiStatus() {
-    try {
+  function updateWifiStatus() {
+    if(wifiStatusPromise){performanceSamples.counters.wifiCoalesced+=1;return wifiStatusPromise;}
+    wifiStatusPromise=(async()=>{try {
       const status = await wifiRequest("status");
       const strength = status.signal >= 67 ? 3 : status.signal >= 34 ? 2 : 1;
       $("wifi-button").className = `wifi-button ${status.connected ? `online strength-${strength}` : "offline"}`;
@@ -553,7 +606,8 @@
     } catch (_) {
       $("wifi-button").className = "wifi-button offline";
       $("wifi-button").setAttribute("aria-label", "Ustawienia Wi-Fi, niedostępne");
-    }
+    } finally {translateUi($("wifi-dialog"));translateUi(document.querySelector(".topbar"));}})().finally(()=>{wifiStatusPromise=null;});
+    return wifiStatusPromise;
   }
   async function scanWifi() {
     $("wifi-form").classList.add("hidden");
@@ -575,6 +629,7 @@
         $("wifi-networks").append(button);
       }
     } catch (error) { $("wifi-message").textContent = `Błąd: ${error.message}`; }
+    finally {translateUi($("wifi-dialog"));}
   }
   function chooseWifi(network) {
     wifi.secure = network.secure;
@@ -585,6 +640,7 @@
     $("wifi-networks").classList.add("hidden");
     $("wifi-form").classList.remove("hidden");
     $("wifi-message").textContent = network.secure ? "Wpisz hasło do sieci." : "Ta sieć nie wymaga hasła.";
+    translateUi($("wifi-dialog"));
   }
   function renderKeyboard() {
     const rows = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "-_=+@#$%&!?."];
@@ -696,7 +752,7 @@
     } catch (error) { $("wifi-message").textContent = `Nie udało się połączyć: ${error.message}`; }
   });
   function summaryName(item){ return item?(item.flight||item.hex.toUpperCase()):""; }
-  function renderSummary(){ const s=state.daily; const mlatCount=Object.keys(s.mlat||{}).length,mlatNeeded=Object.keys(s.needsMlat||{}).length; $("summary-date").textContent=new Intl.DateTimeFormat("pl-PL",{dateStyle:"long"}).format(new Date()); $("s-seen").textContent=Object.keys(s.seen).length; $("s-current").textContent=state.aircraft.size; $("s-mlat-percent").textContent=mlatNeeded?`${Math.round(mlatCount/mlatNeeded*100)}%`:"—"; $("s-mlat").textContent=`${mlatCount} z ${mlatNeeded} · teraz bez pozycji: ${state.unpositionedCount}`; $("s-furthest").textContent=s.furthest?`${s.furthest.value.toFixed(1)} km`:"—"; $("s-highest").textContent=s.highest?`${Math.round(s.highest.value*.3048)} m`:"—"; $("s-strongest").textContent=s.strongest?`${s.strongest.value.toFixed(1)} dB`:"—"; $("s-furthest-name").textContent=summaryName(s.furthest); $("s-highest-name").textContent=summaryName(s.highest); $("s-strongest-name").textContent=summaryName(s.strongest); }
+  function renderSummary(){ const s=state.daily; const mlatCount=Object.keys(s.mlat||{}).length,mlatNeeded=Object.keys(s.needsMlat||{}).length; $("summary-date").textContent=new Intl.DateTimeFormat(window.MamalotyI18n.locale,{dateStyle:"long"}).format(new Date()); $("s-seen").textContent=Object.keys(s.seen).length; $("s-current").textContent=state.aircraft.size; $("s-mlat-percent").textContent=mlatNeeded?`${Math.round(mlatCount/mlatNeeded*100)}%`:"—"; $("s-mlat").textContent=`${mlatCount} z ${mlatNeeded} · teraz bez pozycji: ${state.unpositionedCount}`; $("s-furthest").textContent=s.furthest?`${s.furthest.value.toFixed(1)} km`:"—"; $("s-highest").textContent=s.highest?`${Math.round(s.highest.value*.3048)} m`:"—"; $("s-strongest").textContent=s.strongest?`${s.strongest.value.toFixed(1)} dB`:"—"; $("s-furthest-name").textContent=summaryName(s.furthest); $("s-highest-name").textContent=summaryName(s.highest); $("s-strongest-name").textContent=summaryName(s.strongest);translateUi($("summary-dialog")); }
   $("summary-button").addEventListener("click",()=>{renderSummary();$("summary-dialog").classList.remove("hidden");});
   $("summary-close").addEventListener("click",()=>$("summary-dialog").classList.add("hidden"));
   function applyVisualSettings(save=true) {
@@ -728,29 +784,34 @@
     $("startup-zoom").value=visualSettings.startupZoom;
     applyVisualSettings(false);
   }
-  let brightnessTimer;
+  let brightnessRequest=false,brightnessWanted=null,brightnessRevision=0;
   async function loadBrightness() {
+    const revision=brightnessRevision;
     try {
       const response=await fetch("/api/brightness.py",{cache:"no-store"}),data=await response.json();
-      if(!response.ok)return;
+      if(!response.ok||revision!==brightnessRevision||brightnessWanted!==null)return;
       $("screen-brightness").value=data.percent;
       $("screen-brightness-value").textContent=`${data.percent}%`;
     } catch(_) {}
   }
+  async function flushBrightness() {
+    if(brightnessRequest||brightnessWanted===null)return;
+    brightnessRequest=true;
+    const percent=brightnessWanted;brightnessWanted=null;
+    try {
+      const response=await fetch("/api/brightness.py",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`percent=${percent}`,cache:"no-store"});
+      const data=await response.json();
+      if(response.ok&&brightnessWanted===null)$("screen-brightness-value").textContent=`${data.percent}%`;
+    } catch(_) {}
+    finally {brightnessRequest=false;if(brightnessWanted!==null)queueMicrotask(flushBrightness);}
+  }
   function changeBrightness() {
-    const percent=Number($("screen-brightness").value);
+    const percent=Number($("screen-brightness").value);brightnessRevision+=1;
     $("screen-brightness-value").textContent=`${percent}%`;
-    clearTimeout(brightnessTimer);
-    brightnessTimer=setTimeout(async()=>{
-      try {
-        const response=await fetch("/api/brightness.py",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`percent=${percent}`,cache:"no-store"});
-        const data=await response.json();
-        if(response.ok)$("screen-brightness-value").textContent=`${data.percent}%`;
-      } catch(_) {}
-    },150);
+    brightnessWanted=percent;flushBrightness();
   }
   $("settings-button").addEventListener("click",()=>{$("settings-dialog").classList.remove("hidden");loadBrightness();});
-  $("settings-close").addEventListener("click",()=>$("settings-dialog").classList.add("hidden"));
+  $("settings-close").addEventListener("click",()=>{$("settings-dialog").classList.add("hidden");flushBrightness();refresh();});
   for(const id of ["trail-width","aircraft-size","startup-zoom"]) $(id).addEventListener("input",()=>applyVisualSettings());
   $("screen-brightness").addEventListener("input",changeBrightness);
   for(const button of document.querySelectorAll("[data-aircraft-color]")) button.addEventListener("click",()=>{visualSettings.aircraftColor=button.dataset.aircraftColor;populateVisualSettings();applyVisualSettings();});
@@ -762,7 +823,10 @@
   });
   $("settings-reset").addEventListener("click",()=>{visualSettings={...visualDefaults};populateVisualSettings();localStorage.removeItem("mamaloty.visual-settings");});
   addEventListener("beforeunload",()=>features.checkpoint(state.daily,localStorage,Date.now(),true));
+  addEventListener("mamaloty-language-change",()=>{renderDetails();if(!$("summary-dialog").classList.contains("hidden"))renderSummary();translateUi(document.body);});
   populateVisualSettings();
-  renderKeyboard(); updateWifiStatus(); updateMlatStatus(); setInterval(updateWifiStatus,10000); setInterval(updateMlatStatus,10000);
-  refresh(); setInterval(refresh,1000);
+  const pollWifiStatus=async()=>{if(!dialogOpen())await updateWifiStatus();setTimeout(pollWifiStatus,10000);};
+  const pollMlatStatus=async()=>{if(!dialogOpen())await updateMlatStatus();setTimeout(pollMlatStatus,10000);};
+  renderKeyboard(); pollWifiStatus(); pollMlatStatus();
+  refresh();
 })();

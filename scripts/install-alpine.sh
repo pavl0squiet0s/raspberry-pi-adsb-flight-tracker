@@ -98,6 +98,7 @@ install -m 0755 "$src/scripts/wifi-route-watch.sh" /usr/libexec/flight-tracker/w
 install -m 0755 "$src/scripts/location-watch.sh" /usr/libexec/flight-tracker/location-watch.sh
 install -m 0755 "$src/scripts/enrichment-worker.py" /usr/libexec/flight-tracker/enrichment-worker.py
 install -m 0755 "$src/scripts/brightness-restore.sh" /usr/libexec/flight-tracker/brightness-restore.sh
+install -m 0755 "$src/scripts/zram-swap.sh" /usr/libexec/flight-tracker/zram-swap.sh
 install -m 0644 "$src/config/chromium-policy.json" /etc/chromium/policies/managed/mamaloty.json
 install -m 0644 "$src/config/chromium-policy.json" /etc/chromium-browser/policies/managed/mamaloty.json
 cp -R "$src/web/flags/." /usr/share/flight-tracker/web/flags/
@@ -184,6 +185,7 @@ install -m 0755 "$src/openrc/flight-tracker-wifi-route" /etc/init.d/flight-track
 install -m 0755 "$src/openrc/flight-tracker-location-watch" /etc/init.d/flight-tracker-location-watch
 install -m 0755 "$src/openrc/flight-tracker-enrichment" /etc/init.d/flight-tracker-enrichment
 install -m 0755 "$src/openrc/flight-tracker-brightness" /etc/init.d/flight-tracker-brightness
+install -m 0755 "$src/openrc/flight-tracker-zram" /etc/init.d/flight-tracker-zram
 rc-update add flight-tracker-dump1090 default >/dev/null 2>&1 || true
 rc-update add flight-tracker-web default >/dev/null 2>&1 || true
 rc-update add flight-tracker-mlat default >/dev/null 2>&1 || true
@@ -191,6 +193,8 @@ rc-update add flight-tracker-wifi-route default >/dev/null 2>&1 || true
 rc-update add flight-tracker-location-watch default >/dev/null 2>&1 || true
 rc-update add flight-tracker-enrichment default >/dev/null 2>&1 || true
 rc-update add flight-tracker-brightness default >/dev/null 2>&1 || true
+rc-update add flight-tracker-zram default >/dev/null 2>&1 || true
+/usr/libexec/flight-tracker/zram-swap.sh start
 /usr/libexec/flight-tracker/brightness-restore.sh
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger --subsystem-match=usb 2>/dev/null || true
