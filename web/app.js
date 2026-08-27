@@ -310,32 +310,43 @@
     flag.style.backgroundImage=valid?`url("/flags/${country}.svg")`:"";
     flag.setAttribute("aria-label",valid?country.toUpperCase():"");
   }
-  let enrichmentInFlight=false,enrichmentPending=false,enrichmentRetryTimer;
+  let enrichmentInFlight=false,enrichmentPending=null,enrichmentRetryTimer;
+  function applyEnrichmentSnapshot(data,selected=state.selected&&state.aircraft.get(state.selected)) {
+    const now=Date.now()/1000;
+    for(const [hex,item] of Object.entries(data.aircraft||{}))if(Object.hasOwn(item,"data"))
+      state.aircraftInfo.set(hex.toLowerCase(),{info:item.data,resolved:true,stale:(item.expires||0)<=now});
+    for(const [callsign,item] of Object.entries(data.routes||{}))if(Object.hasOwn(item,"data")) {
+      state.routes.set(callsign,{route:item.data,resolved:true,stale:(item.expires||0)<=now});
+      for(const airport of [item.data?.origin,item.data?.destination]) {
+        const country=(airport?.country||"").toLowerCase();
+        if(/^[a-z]{2}$/.test(country)){const image=new Image();image.src=`/flags/${country}.svg`;image.decode?.().catch(()=>{});}
+      }
+      if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.selectionStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.selectionStarted));delete performanceSamples.selectionStarted;}
+    }
+  }
+  function signalEnrichmentPriority(aircraft) {
+    if(!aircraft)return;
+    fetch(`/api/enrichment.py?priority=${encodeURIComponent(`${aircraft.hex}:${routeKey(aircraft.flight)}`)}`,{cache:"no-store",keepalive:true}).catch(()=>{});
+  }
   async function refreshEnrichmentCache(force=false,priority=false) {
-    if(!force&&Date.now()-state.enrichmentLookupAt<5000)return;
-    if(enrichmentInFlight){performanceSamples.counters.enrichmentCoalesced+=1;enrichmentPending=enrichmentPending||force;return;}
-    state.enrichmentLookupAt=Date.now();
-    const bounds=map.getBounds(),visible=[...state.aircraft.values()].filter(a=>bounds.contains([a.lat,a.lon])).slice(0,64);
-    if(!visible.length)return;
-    const items=visible.map(a=>`${a.hex}:${routeKey(a.flight)}`).join(",");
     const selected=priority&&state.selected?state.aircraft.get(state.selected):null;
-    const priorityItem=selected?`&priority=${encodeURIComponent(`${selected.hex}:${routeKey(selected.flight)}`)}`:"";
+    if(selected)signalEnrichmentPriority(selected);
+    if(!force&&Date.now()-state.enrichmentLookupAt<30000)return;
+    const request={force,priority:selected?.hex||null};
+    if(enrichmentInFlight){performanceSamples.counters.enrichmentCoalesced+=1;enrichmentPending={force:enrichmentPending?.force||force,priority:request.priority||enrichmentPending?.priority||null};return;}
+    state.enrichmentLookupAt=Date.now();
     const started=performance.now(); enrichmentInFlight=true;
     try {
-      const response=await fetch(`/api/enrichment.py?items=${encodeURIComponent(items)}${priorityItem}`,{cache:"no-store"});
+      const response=await fetch(`/data/enrichment.json?t=${Date.now()}`,{cache:"no-store"});
       const data=await response.json(); if(!response.ok)return;
-      for(const item of data.aircraft||[]) {
-        const hex=item.hex.toLowerCase(),callsign=item.callsign;
-        if(item.aircraft_cached)state.aircraftInfo.set(hex,{info:item.aircraft,resolved:true});
-        if(callsign&&item.route_cached){state.routes.set(callsign,{route:item.route,resolved:true,stale:item.route_stale});if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.selectionStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.selectionStarted));if(performanceSamples.selectionLatency.length>60)performanceSamples.selectionLatency.shift();delete performanceSamples.selectionStarted;}}
-      }
+      applyEnrichmentSnapshot(data,selected);
       renderDetails();
       const selectedRoute=selected&&state.routes.get(routeKey(selected.flight));
       if(selected&&!selectedRoute?.resolved){clearTimeout(enrichmentRetryTimer);enrichmentRetryTimer=setTimeout(()=>refreshEnrichmentCache(true,true),750);}
     } catch(_) {}
     finally {
       enrichmentInFlight=false; recordPerformance("enrichment",started);
-      if(enrichmentPending){enrichmentPending=false;queueMicrotask(()=>refreshEnrichmentCache(true));}
+      if(enrichmentPending){const pending=enrichmentPending;enrichmentPending=null;queueMicrotask(()=>refreshEnrichmentCache(pending.force,Boolean(pending.priority)));}
     }
   }
   function renderDetails() {

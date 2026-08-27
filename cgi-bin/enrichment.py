@@ -38,6 +38,9 @@ if HEX_RE.fullmatch(priority_hex) and (not priority_callsign or CALLSIGN_RE.full
         temporary.replace(PRIORITY)
     except OSError:
         pass
+if not any(items):
+    reply({"accepted": True})
+    sys.exit(0)
 try:
     cache = json.loads(CACHE.read_text())
 except (OSError, ValueError, TypeError):

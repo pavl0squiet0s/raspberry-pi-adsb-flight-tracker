@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 FEED = Path(os.environ.get("ENRICHMENT_FEED", "/run/flight-tracker/aircraft.json"))
 CACHE = Path(os.environ.get("ENRICHMENT_CACHE", "/var/lib/flight-tracker/enrichment.json"))
 PRIORITY = Path(os.environ.get("ENRICHMENT_PRIORITY", "/var/lib/flight-tracker/enrichment-priority.json"))
+SNAPSHOT = Path(os.environ.get("ENRICHMENT_SNAPSHOT", "/run/flight-tracker/enrichment.json"))
 POLL_SECONDS = 1
 REQUEST_INTERVAL = 5
 AIRCRAFT_TTL = 30 * 86400
@@ -46,6 +47,21 @@ def save_cache(data, path=CACHE):
     temporary = path.with_suffix(".new")
     temporary.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     os.chmod(temporary, 0o640)
+    temporary.replace(path)
+
+
+def publish_snapshot(data, path=SNAPSHOT, now=None):
+    """Atomically expose the complete cache to the browser without CGI startup."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "version": 1,
+        "generated": int(time.time() if now is None else now),
+        "aircraft": data.get("aircraft", {}),
+        "routes": data.get("routes", {}),
+    }
+    temporary = path.with_suffix(".new")
+    temporary.write_text(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")))
+    os.chmod(temporary, 0o644)
     temporary.replace(path)
 
 
@@ -147,6 +163,7 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     cache = load_cache()
+    publish_snapshot(cache)
     retry_after = {}
     requested_at = 0.0
     seen_pairs = set()
@@ -182,6 +199,7 @@ def main():
             if needs_route:
                 cache["routes"][callsign] = {"expires": now + (ROUTE_TTL if route_data else NEGATIVE_TTL), "data": route_data}
             save_cache(cache)
+            publish_snapshot(cache)
             retry_after.pop(key, None)
         except HTTPError as error:
             retry_after[key] = int(time.time()) + (RATE_LIMIT_RETRY if error.code == 429 else ERROR_RETRY)

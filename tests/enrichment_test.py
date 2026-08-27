@@ -42,6 +42,18 @@ class EnrichmentTests(unittest.TestCase):
             self.assertEqual(WORKER.load_cache(path), data)
             self.assertEqual(path.stat().st_mode & 0o777, 0o640)
 
+    def test_browser_snapshot_is_atomic_and_public(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "enrichment.json"
+            data = WORKER.empty_cache()
+            data["routes"]["BAW123"] = {"expires": 20, "data": {"origin": {"country": "GB"}}}
+            WORKER.publish_snapshot(data, path, now=10)
+            snapshot = json.loads(path.read_text())
+            self.assertEqual(snapshot["generated"], 10)
+            self.assertEqual(snapshot["routes"]["BAW123"]["data"]["origin"]["country"], "GB")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+            self.assertFalse(path.with_suffix(".new").exists())
+
     def test_recent_priority_pair(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "priority.json"
