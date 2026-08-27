@@ -38,6 +38,16 @@
   const legacy={value:JSON.stringify({day:"2026-08-08",seen:{abc123:1},mlat:{abc123:1}}),getItem(){return this.value;}};
   const migrated=f.restoreDaily(legacy,new Date(2026,7,8)); assert(migrated.needsMlat.abc123);
   assert(!migrated.highest,"legacy unconfirmed altitude records must be discarded");
+  const bounds={south:0,north:10,west:0,east:10};
+  assert(f.inViewport(bounds,{lat:5,lon:5}));
+  assert(f.inViewport(bounds,{lat:11,lon:5},.15));
+  assert(!f.inViewport(bounds,{lat:12,lon:5},.15));
+  assert(!f.trailDirty([1,2],{lat:1.00001,lon:2.00001}));
+  assert(f.trailDirty([1,2],{lat:1.001,lon:2}));
+  const coalesced=f.coalesceRequest({force:false,priority:"OLD"},{force:true,priority:null});
+  assert(coalesced.force);equal(coalesced.priority,"OLD");
+  equal(f.nearestAircraftHit([{hex:"a",x:10,y:10},{hex:"b",x:30,y:30}],{x:27,y:28},8).hex,"b");
+  assert(!f.nearestAircraftHit([{hex:"a",x:10,y:10}],{x:30,y:30},8));
   const reset=f.updateDaily(restored,[],receiver,new Date(2026,7,9)); equal(Object.keys(reset.seen).length,0);
   console.log("Feature tests passed");
 })().catch(error=>{console.error(error); if(typeof process!=="undefined")process.exitCode=1; else Deno.exit(1);});

@@ -35,7 +35,7 @@
     "Zsynchronizowany":"Synchronised","Połączony, czeka":"Connected, waiting","MLAT działa prawidłowo.":"MLAT is working correctly.",
     "Brak synchronizacji od ponad 10 minut.":"No synchronisation for over 10 minutes.","Zbieranie danych do synchronizacji…":"Collecting data for synchronisation…",
     "Brak Wi‑Fi — MLAT czeka na połączenie.":"No Wi-Fi — MLAT is waiting for a connection.","MLAT jest wyłączony.":"MLAT is disabled.",
-    "Nie można połączyć z usługą MLAT.":"Cannot connect to the MLAT service.","Błąd":"Error","Dotknij sieci, aby się połączyć:":"Tap a network to connect:",
+    "Nie można połączyć z usługą MLAT.":"Cannot connect to the MLAT service.","Błąd":"Error","Dotknij sieci, aby się połączyć:":"Tap a network to connect:","Uruchom 30 pomiarów":"Run 30 measurements","Pomiar…":"Measuring…","Testuj Canvas":"Test Canvas","Wróć do DOM":"Return to DOM",
     "Nie znaleziono sieci Wi‑Fi.":"No Wi-Fi networks found.","Wpisz hasło do sieci.":"Enter the network password.",
     "Ta sieć nie wymaga hasła.":"This network does not require a password.","Rozłączanie…":"Disconnecting…",
     "Wi‑Fi rozłączone. Możesz połączyć się ponownie z zapisanej sieci.":"Wi-Fi disconnected. You can reconnect to the saved network.",

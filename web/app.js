@@ -14,12 +14,13 @@
   }
   let visualSettings=restoreVisualSettings();
   const runtimeMode = new URLSearchParams(window.location.search).get("mode") || cfg.mode;
+  const rendererMode = new URLSearchParams(window.location.search).get("renderer") === "canvas" ? "canvas" : "dom";
   const $ = (id) => document.getElementById(id);
   const state = { selected: null, aircraft: new Map(), markers: new Map(), trails: new Map(), trailColors: new Map(), lines: new Map(), db: new Map(), types: null, routes: new Map(), aircraftInfo: new Map(), daily:features.restoreDaily(localStorage), mlatConfig:null, savedReceiver:null, unpositionedCount:0, remotePositions:new Map(), nearbyHelicopters:new Map(), positionLookupAt:0, nearbyLookupAt:0, enrichmentLookupAt:0 };
-  const performanceSamples={refresh:[],trails:[],enrichment:[],longTasks:[],counters:{refreshCoalesced:0,enrichmentCoalesced:0,wifiCoalesced:0,mlatCoalesced:0},selectionLatency:[]};
+  const performanceSamples={refresh:[],trails:[],enrichment:[],longTasks:[],counters:{refreshCoalesced:0,enrichmentCoalesced:0,wifiCoalesced:0,mlatCoalesced:0,markersCulled:0},selectionLatency:[],shellLatency:[],hydrationLatency:[]};
   const recordPerformance=(name,started)=>{const samples=performanceSamples[name],duration=performance.now()-started;samples.push(Math.round(duration));if(samples.length>60)samples.shift();};
   if(globalThis.PerformanceObserver)try{new PerformanceObserver(list=>{for(const entry of list.getEntries()){performanceSamples.longTasks.push(Math.round(entry.duration));if(performanceSamples.longTasks.length>60)performanceSamples.longTasks.shift();}}).observe({type:"longtask",buffered:true});}catch(_){}
-  window.MamalotyPerformance={samples:performanceSamples,snapshot:()=>structuredClone(performanceSamples)};
+  window.MamalotyPerformance={samples:performanceSamples,snapshot:()=>structuredClone(performanceSamples),reset:()=>{for(const value of Object.values(performanceSamples))if(Array.isArray(value))value.length=0;for(const key of Object.keys(performanceSamples.counters))performanceSamples.counters[key]=0;}};
   const translateUi=root=>window.MamalotyI18n.apply(root);
   const dialogOpen=()=>Boolean(document.querySelector('[role="dialog"]:not(.hidden)'));
   const airlines = {
@@ -153,9 +154,11 @@
     // Do not leave geographically transformed trails on screen while marker
     // visibility is being recalculated for a new viewport.
     for(const lines of state.lines.values())lines.forEach((line)=>line.setLatLngs([]));
+    if(rendererMode==="canvas")aircraftCanvas.style.visibility="hidden";
   });
   map.on("moveend zoomend",()=>{
     mapBusy=false;
+    if(rendererMode==="canvas"){aircraftCanvas.style.visibility="visible";scheduleAircraftCanvas();}
     updateTrails(Date.now()/1000,true);
   });
   function applyReceiverLocation(config,recenter=false) {
@@ -181,9 +184,9 @@
   ];
   function renderIconDiagnostics() {
     let performanceBox=$("performance-diagnostics");
-    if(!performanceBox){const section=document.createElement("section"),heading=document.createElement("h3");section.className="performance-diagnostics";performanceBox=document.createElement("pre");performanceBox.id="performance-diagnostics";heading.textContent="Responsywność";section.append(heading,performanceBox);$("test-dialog").querySelector(".receiver-location").before(section);}
+    if(!performanceBox){const section=document.createElement("section"),heading=document.createElement("h3"),button=document.createElement("button"),rendererButton=document.createElement("button");section.className="performance-diagnostics";performanceBox=document.createElement("pre");performanceBox.id="performance-diagnostics";heading.textContent="Responsywność";button.type="button";button.className="back-button";button.textContent="Uruchom 30 pomiarów";button.addEventListener("click",async()=>{button.disabled=true;button.textContent="Pomiar…";await runSelectionBenchmark();renderIconDiagnostics();button.disabled=false;button.textContent="Uruchom 30 pomiarów";});rendererButton.type="button";rendererButton.className="back-button renderer-test-button";rendererButton.textContent=rendererMode==="canvas"?"Wróć do DOM":"Testuj Canvas";rendererButton.addEventListener("click",()=>{const url=new URL(location.href);if(rendererMode==="canvas")url.searchParams.delete("renderer");else url.searchParams.set("renderer","canvas");location.href=url;});section.append(heading,performanceBox,button,rendererButton);$("test-dialog").querySelector(".receiver-location").before(section);}
     const percentile=samples=>samples.length?[...samples].sort((a,b)=>a-b)[Math.floor((samples.length-1)*.95)]:0;
-    performanceBox.textContent=[`Odświeżanie p95: ${percentile(performanceSamples.refresh)} ms`,`Ślady p95: ${percentile(performanceSamples.trails)} ms`,`Dane lotu p95: ${percentile(performanceSamples.enrichment)} ms`,`Długie zadania: ${performanceSamples.longTasks.length}`,`Trasa po dotknięciu p95: ${percentile(performanceSamples.selectionLatency)} ms`,`Scalone żądania: ${Object.values(performanceSamples.counters).reduce((sum,value)=>sum+value,0)}`].join("\n");
+    performanceBox.textContent=[`Próbki wyboru: ${performanceSamples.shellLatency.length}/30`,`Powłoka szczegółów p95: ${percentile(performanceSamples.shellLatency)} ms`,`Pełne szczegóły p95: ${percentile(performanceSamples.hydrationLatency)} ms`,`Odświeżanie p95: ${percentile(performanceSamples.refresh)} ms`,`Ślady p95: ${percentile(performanceSamples.trails)} ms`,`Dane lotu p95: ${percentile(performanceSamples.enrichment)} ms`,`Długie zadania: ${performanceSamples.longTasks.length}`,`Trasa po dotknięciu p95: ${percentile(performanceSamples.selectionLatency)} ms`,`Pominięte markery: ${performanceSamples.counters.markersCulled}`].join("\n");
     const svgNamespace = "http://www.w3.org/2000/svg";
     $("icon-diagnostics").replaceChildren(...iconDiagnostics.map(([key,title,description]) => {
       const item=document.createElement("article"); item.className="icon-diagnostic";
@@ -225,6 +228,22 @@
       html: `<svg style="transform:rotate(${rotation}deg)" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="${iconPaths[kind]}"/></svg>`
     });
   }
+  const aircraftCanvas=document.createElement("canvas"),canvasPaths=new Map();let canvasHits=[],canvasFrame=0;
+  aircraftCanvas.className="aircraft-canvas";aircraftCanvas.setAttribute("aria-hidden","true");
+  if(rendererMode==="canvas")$("map").append(aircraftCanvas);
+  function drawAircraftCanvas() {
+    canvasFrame=0;if(rendererMode!=="canvas")return;
+    const ratio=devicePixelRatio||1,width=$("map").clientWidth,height=$("map").clientHeight;
+    if(aircraftCanvas.width!==width*ratio||aircraftCanvas.height!==height*ratio){aircraftCanvas.width=width*ratio;aircraftCanvas.height=height*ratio;aircraftCanvas.style.width=`${width}px`;aircraftCanvas.style.height=`${height}px`;}
+    const context=aircraftCanvas.getContext("2d");context.setTransform(ratio,0,0,ratio,0,0);context.clearRect(0,0,width,height);canvasHits=[];
+    const bounds=map.getBounds().pad(.15),viewport={south:bounds.getSouth(),north:bounds.getNorth(),west:bounds.getWest(),east:bounds.getEast()},size=visualSettings.aircraftSize;
+    for(const a of state.aircraft.values()){
+      if(!features.inViewport(viewport,a,0))continue;
+      const point=map.latLngToContainerPoint([a.lat,a.lon]),kind=aircraftClass(a);let path=canvasPaths.get(kind);if(!path){path=new Path2D(iconPaths[kind]);canvasPaths.set(kind,path);}
+      context.save();context.globalAlpha=markerOpacity(a);context.fillStyle=a.hex===state.selected?"#ff2bd6":visualSettings.aircraftColor;context.translate(point.x,point.y);context.rotate(displayTrack(a)*Math.PI/180);context.scale(size/32,size/32);context.translate(-16,-16);context.fill(path);context.restore();canvasHits.push({hex:a.hex,x:point.x,y:point.y});
+    }
+  }
+  function scheduleAircraftCanvas(){if(rendererMode==="canvas"&&!canvasFrame)canvasFrame=requestAnimationFrame(drawAircraftCanvas);}
   const haversine = features.haversine;
   const value = (v, suffix, decimals=0) => Number.isFinite(v) ? `${v.toFixed(decimals)} ${suffix}` : "—";
 
@@ -285,17 +304,26 @@
     }
     if (state.selected === hex) renderDetails();
   }
-  function selectAircraft(hex) {
-    performanceSamples.selectionStarted=performance.now();
+  let selectionMeasurement=null;
+  function selectAircraft(hex,signal=true) {
+    const started=performance.now();selectionMeasurement={hex,started,shell:false};performanceSamples.routeStarted=started;
     state.selected = hex;
+    scheduleAircraftCanvas();
     renderDetails();
     enrichAircraft(hex);
     const aircraft=state.aircraft.get(hex),key=routeKey(aircraft?.flight);
     if(!state.aircraftInfo.has(hex))state.aircraftInfo.set(hex,{loading:true});
     if(key&&!state.routes.has(key))state.routes.set(key,{loading:true});
-    if(key&&state.routes.get(key)?.resolved){performanceSamples.selectionLatency.push(0);delete performanceSamples.selectionStarted;}
-    refreshEnrichmentCache(true,true);
+    if(key&&state.routes.get(key)?.resolved){performanceSamples.selectionLatency.push(0);delete performanceSamples.routeStarted;}
+    if(signal)refreshEnrichmentCache(true,true);
   }
+  async function runSelectionBenchmark(count=30) {
+    const hexes=[...state.aircraft.keys()];if(!hexes.length)return;
+    window.MamalotyPerformance.reset();
+    for(let index=0;index<count;index+=1){selectAircraft(hexes[index%hexes.length],false);await new Promise(resolve=>setTimeout(resolve,100));}
+    await new Promise(resolve=>setTimeout(resolve,250));
+  }
+  window.MamalotyBenchmark={run:runSelectionBenchmark};
   function routeKey(flight) { return (flight || "").trim().toUpperCase(); }
   function airportLabel(airport) {
     if (!airport) return "Trasa niedostępna";
@@ -321,7 +349,7 @@
         const country=(airport?.country||"").toLowerCase();
         if(/^[a-z]{2}$/.test(country)){const image=new Image();image.src=`/flags/${country}.svg`;image.decode?.().catch(()=>{});}
       }
-      if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.selectionStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.selectionStarted));delete performanceSamples.selectionStarted;}
+      if(selected&&callsign===routeKey(selected.flight)&&performanceSamples.routeStarted){performanceSamples.selectionLatency.push(Math.round(performance.now()-performanceSamples.routeStarted));delete performanceSamples.routeStarted;}
     }
   }
   function signalEnrichmentPriority(aircraft) {
@@ -333,7 +361,7 @@
     if(selected)signalEnrichmentPriority(selected);
     if(!force&&Date.now()-state.enrichmentLookupAt<30000)return;
     const request={force,priority:selected?.hex||null};
-    if(enrichmentInFlight){performanceSamples.counters.enrichmentCoalesced+=1;enrichmentPending={force:enrichmentPending?.force||force,priority:request.priority||enrichmentPending?.priority||null};return;}
+    if(enrichmentInFlight){performanceSamples.counters.enrichmentCoalesced+=1;enrichmentPending=features.coalesceRequest(enrichmentPending,request);return;}
     state.enrichmentLookupAt=Date.now();
     const started=performance.now(); enrichmentInFlight=true;
     try {
@@ -349,10 +377,17 @@
       if(enrichmentPending){const pending=enrichmentPending;enrichmentPending=null;queueMicrotask(()=>refreshEnrichmentCache(pending.force,Boolean(pending.priority)));}
     }
   }
+  let detailsGeneration=0;
+  function deferDetails(task) {
+    if(globalThis.scheduler?.postTask)scheduler.postTask(task,{priority:"background"}).catch(()=>{});
+    else setTimeout(task,0);
+  }
   function renderDetails() {
+    const generation=++detailsGeneration,measurement=selectionMeasurement?.hex===state.selected?selectionMeasurement:null,started=measurement?.started;
     const a = state.aircraft.get(state.selected);
     $("details").classList.toggle("hidden", !a);
-    if(renderDetails.selected&&renderDetails.selected!==state.selected)state.markers.get(renderDetails.selected)?.getElement()?.classList.remove("selected");
+    const selectionChanged=renderDetails.selected!==state.selected;
+    if(renderDetails.selected&&selectionChanged)state.markers.get(renderDetails.selected)?.getElement()?.classList.remove("selected");
     renderDetails.selected=state.selected;
     if (!a) return;
     state.markers.get(a.hex)?.getElement()?.classList.add("selected");
@@ -403,8 +438,14 @@
     $("d-elevation").textContent=look&&Number.isFinite(look.elevation)?`Przybliżony kąt wzniesienia: ${Math.max(-5,look.elevation).toFixed(1)}°`:"Przybliżony kąt wzniesienia: —";
     $("look-compass").style.transform=look?`rotate(${look.bearing}deg)`:"";
     $("d-bearing").style.transform=look?`rotate(${-look.bearing}deg)`:"";
-    renderAdvanced(a);
-    translateUi($("details"));
+    requestAnimationFrame(()=>{if(!measurement||measurement.shell||state.selected!==measurement.hex)return;measurement.shell=true;performanceSamples.shellLatency.push(Math.round(performance.now()-started));if(performanceSamples.shellLatency.length>60)performanceSamples.shellLatency.shift();});
+    const hydrate=()=>{
+      if(generation!==detailsGeneration||state.selected!==a.hex)return;
+      if(navigator.scheduling?.isInputPending?.()){deferDetails(hydrate);return;}
+      renderAdvanced(a);if(selectionChanged)translateUi($("details"));
+      if(measurement&&selectionMeasurement===measurement){performanceSamples.hydrationLatency.push(Math.round(performance.now()-started));if(performanceSamples.hydrationLatency.length>60)performanceSamples.hydrationLatency.shift();selectionMeasurement=null;}
+    };
+    deferDetails(hydrate);
   }
   function renderAdvanced(a) {
     const fields=[
@@ -419,6 +460,7 @@
     if($("advanced-grid").dataset.key!==fieldKey){$("advanced-grid").dataset.key=fieldKey;$("advanced-grid").replaceChildren(...fields.map(([label,v,unit,decimals=0]) => { const box=document.createElement("div"),span=document.createElement("span"),strong=document.createElement("strong"); span.textContent=label; strong.textContent=typeof v==="number"?`${v.toFixed(decimals)}${unit?` ${unit}`:""}`:`${v}${unit?` ${unit}`:""}`; box.append(span,strong); return box; }));}
     $("advanced").classList.toggle("hidden",fields.length===0);
   }
+  const trailRenderer=L.canvas({padding:.35});
   let trailsRenderedAt=0;
   function updateTrails(now,force=false) {
     const started=performance.now();
@@ -426,11 +468,11 @@
     for (const a of state.aircraft.values()) {
       const trail = state.trails.get(a.hex) || [];
       const last = trail.at(-1);
-      if (!last || Math.abs(last[0]-a.lat) > .0001 || Math.abs(last[1]-a.lon) > .0001) trail.push([a.lat,a.lon,now]);
+      if (features.trailDirty(last,a)) trail.push([a.lat,a.lon,now]);
       state.trails.set(a.hex, trail);
       state.trailColors.set(a.hex, trailColor(a));
     }
-    if(!force&&now-trailsRenderedAt<2)return;
+    if(!force&&(!$('details').classList.contains('hidden')||now-trailsRenderedAt<2))return;
     trailsRenderedAt=now;
     // Keep every age band visibly connected to the next. Very faint old bands
     // made the darker sections on either side look like unrelated orphan lines.
@@ -451,7 +493,7 @@
         lines.forEach((line)=>line.setLatLngs([]));
         continue;
       }
-      while (lines.length < opacity.length) lines.push(L.polyline([], {color:visualSettings.aircraftColor,weight:visualSettings.trailWidth,interactive:false}).addTo(map));
+      while (lines.length < opacity.length) lines.push(L.polyline([], {renderer:trailRenderer,color:visualSettings.aircraftColor,weight:visualSettings.trailWidth,interactive:false}).addTo(map));
       const bands = opacity.map(() => []);
       for (let i = 1; i < trail.length; i += 1) {
         const age = Math.max(0, Math.min(1, (trail[i][2] - cutoff) / (cfg.trailMinutes * 60)));
@@ -473,6 +515,7 @@
     state.trails.delete(hex);
     state.trailColors.delete(hex);
   }
+  function removeMarkerOnly(hex) { state.markers.get(hex)?.remove();state.markers.delete(hex);for(const line of state.lines.get(hex)||[])line.setLatLngs([]); }
   let refreshInFlight=false,refreshTimer;
   async function refresh() {
     if(refreshInFlight){performanceSamples.counters.refreshCoalesced+=1;return;}
@@ -520,7 +563,11 @@
       refreshEnrichmentCache();
       const visualHexes=new Set([...state.markers.keys(),...state.lines.keys(),...state.trails.keys()]);
       for(const hex of visualHexes) if(!positioned.has(hex)) removeAircraftVisuals(hex);
+      const padded=map.getBounds().pad(.15);
+      const viewport={south:padded.getSouth(),north:padded.getNorth(),west:padded.getWest(),east:padded.getEast()};
       for (const a of positioned.values()) {
+        if(rendererMode==="canvas"){removeMarkerOnly(a.hex);continue;}
+        if(!features.inViewport(viewport,a,0)&&a.hex!==state.selected){removeMarkerOnly(a.hex);performanceSamples.counters.markersCulled+=1;continue;}
         let marker = state.markers.get(a.hex);
         if (!marker) {
           marker = L.marker([a.lat,a.lon], {icon:planeIcon(a), keyboard:false}).addTo(map);
@@ -536,6 +583,7 @@
         }
         const opacity=markerOpacity(a);if(marker._opacity!==opacity){marker.setOpacity(opacity);marker._opacity=opacity;}
       }
+      scheduleAircraftCanvas();
       $("aircraft-count").textContent = positioned.size;
       $("empty-state").classList.toggle("hidden", positioned.size > 0);
       $("empty-state").textContent = "Czekam na samoloty w zasięgu anteny…";
@@ -559,8 +607,8 @@
     try { const response=await fetch(`/api/position.py?hex=${encodeURIComponent(hexes.slice(0,16).join(","))}`,{cache:"no-store"}); const data=await response.json(); if(!response.ok)return; const now=Date.now(); for(const aircraft of data.aircraft||[])state.remotePositions.set(aircraft.hex,{...aircraft,updated:now}); } catch(_) {}
   }
   async function lookupNearbyHelicopters(){ state.nearbyLookupAt=Date.now(); try{const response=await fetch("/api/position.py?nearby=helicopters",{cache:"no-store"});const data=await response.json();if(!response.ok)return;const now=Date.now();for(const aircraft of data.aircraft||[])state.nearbyHelicopters.set(aircraft.hex,{...aircraft,updated:now});}catch(_){} }
-  $("close-details").addEventListener("click", () => { state.selected = null; renderDetails(); });
-  map.on("click", () => { state.selected = null; renderDetails(); });
+  $("close-details").addEventListener("click", () => { state.selected = null; scheduleAircraftCanvas();renderDetails(); });
+  map.on("click", event => {const hit=rendererMode==="canvas"?features.nearestAircraftHit(canvasHits,event.containerPoint,visualSettings.aircraftSize*.65):null;if(hit){selectAircraft(hit.hex);return;}state.selected=null;scheduleAircraftCanvas();renderDetails();});
   const wifi = {secure:true, shift:false};
   const wifiRequest = async (action, options={}) => {
     const response = await fetch(`/api/wifi.py?action=${action}`, {cache:"no-store", ...options});
@@ -585,7 +633,7 @@
   function updateMlatStatus() {
     if(mlatStatusPromise){performanceSamples.counters.mlatCoalesced+=1;return mlatStatusPromise;}
     mlatStatusPromise=(async()=>{try {
-      const data=await mlatRequest("status"); state.mlatConfig=data.config||null;
+      const response=await fetch("/data/mlat-status.json",{cache:"no-store"}),data=await response.json();if(!response.ok)throw new Error(`HTTP ${response.status}`); state.mlatConfig=data.config||null;
       applyReceiverLocation(data.config);
       const label=mlatLabels[data.state]||data.state;
       $("mlat-button").className=`status-button mlat-button ${data.state}`;
@@ -610,7 +658,7 @@
   function updateWifiStatus() {
     if(wifiStatusPromise){performanceSamples.counters.wifiCoalesced+=1;return wifiStatusPromise;}
     wifiStatusPromise=(async()=>{try {
-      const status = await wifiRequest("status");
+      const response=await fetch("/data/wifi-status.json",{cache:"no-store"}),status=await response.json();if(!response.ok)throw new Error(`HTTP ${response.status}`);
       const strength = status.signal >= 67 ? 3 : status.signal >= 34 ? 2 : 1;
       $("wifi-button").className = `wifi-button ${status.connected ? `online strength-${strength}` : "offline"}`;
       $("wifi-button").setAttribute("aria-label", status.connected ? `Ustawienia Wi-Fi, połączono, siła sygnału ${status.signal ?? "nieznana"}%` : "Ustawienia Wi-Fi, brak połączenia");
@@ -719,7 +767,7 @@
     $("receiver-numpad-value").textContent=receiverNumberBuffer || "0";
   });
   async function loadReceiverForm() {
-    try { const data=await mlatRequest("status"); populateReceiverForm(data.config); }
+    try { const response=await fetch("/data/mlat-status.json",{cache:"no-store"}),data=await response.json();if(!response.ok)throw new Error(`HTTP ${response.status}`);populateReceiverForm(data.config); }
     catch(error) { $("receiver-location-message").textContent=`Błąd: ${error.message}`; }
   }
   $("test-button").addEventListener("click", () => { renderIconDiagnostics(); loadReceiverForm(); $("test-dialog").classList.remove("hidden"); });
@@ -779,6 +827,7 @@
     if(map.getZoom()!==visualSettings.startupZoom)map.setZoom(visualSettings.startupZoom);
     for(const [hex,marker] of state.markers) marker.setIcon(planeIcon(state.aircraft.get(hex)));
     for(const a of state.aircraft.values()) state.trailColors.set(a.hex,trailColor(a));
+    scheduleAircraftCanvas();
     if(save){localStorage.setItem("mamaloty.visual-settings",JSON.stringify(visualSettings));localStorage.setItem("mamaloty.visual-settings-version",visualSettingsVersion);}
   }
   function populateVisualSettings() {

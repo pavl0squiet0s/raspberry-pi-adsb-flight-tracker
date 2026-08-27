@@ -86,5 +86,21 @@
     if (!force && now-(stats.savedAt||0)<300000) return false;
     stats.savedAt=now; storage.setItem(STORAGE_KEY,JSON.stringify(stats)); return true;
   }
-  return {haversine,bearing,cardinal,look,isMlat,isHelicopter,isHeavy,emergency,badges,aircraftVisualClass,localDay,emptyDaily,restoreDaily,updateDaily,checkpoint,STORAGE_KEY};
+  function inViewport(bounds, aircraft, padding=.15) {
+    if(!bounds||![aircraft?.lat,aircraft?.lon].every(Number.isFinite))return false;
+    const latPadding=(bounds.north-bounds.south)*padding,lonPadding=(bounds.east-bounds.west)*padding;
+    return aircraft.lat>=bounds.south-latPadding&&aircraft.lat<=bounds.north+latPadding&&aircraft.lon>=bounds.west-lonPadding&&aircraft.lon<=bounds.east+lonPadding;
+  }
+  function trailDirty(previous, aircraft, threshold=.0001) {
+    return !previous||Math.abs(previous[0]-aircraft.lat)>threshold||Math.abs(previous[1]-aircraft.lon)>threshold;
+  }
+  function coalesceRequest(current, incoming) {
+    return {force:Boolean(current?.force||incoming?.force),priority:incoming?.priority||current?.priority||null};
+  }
+  function nearestAircraftHit(hits, point, radius) {
+    let best=null,bestDistance=radius*radius;
+    for(const hit of hits){const distance=(hit.x-point.x)**2+(hit.y-point.y)**2;if(distance<=bestDistance){best=hit;bestDistance=distance;}}
+    return best;
+  }
+  return {haversine,bearing,cardinal,look,isMlat,isHelicopter,isHeavy,emergency,badges,aircraftVisualClass,localDay,emptyDaily,restoreDaily,updateDaily,checkpoint,inViewport,trailDirty,coalesceRequest,nearestAircraftHit,STORAGE_KEY};
 });

@@ -24,10 +24,13 @@ write_status() {
     if [ "$synchronized" = true ]; then last_sync_at=$now; fi
     current_state=$1
     previous_connected=$connected
+    public_antenna=${antenna:-null}; public_terrain=${terrain:-null}; public_absolute=${absolute:-null}
+    [ -n "$public_antenna" ] || public_antenna=null; [ -n "$public_terrain" ] || public_terrain=null; [ -n "$public_absolute" ] || public_absolute=null
+    config_json=$(printf '"config":{"enabled":%s,"antenna_height_m":%s,"terrain_m":%s,"absolute_elevation_m":%s,"ellipsoid_altitude_m":%s,"receiver_lat":%s,"receiver_lon":%s}' "${enabled:-false}" "$public_antenna" "$public_terrain" "$public_absolute" "${ellipsoid_altitude:-190}" "${receiver_lat:-0}" "${receiver_lon:-0}")
     if [ "$#" -gt 1 ]; then
-        printf '{"state":"%s","detail":"%s","connected":%s,"synchronized":%s,"connected_since":%s,"last_sync_at":%s,"updated_at":%s}\n' "$1" "$2" "$connected" "$synchronized" "$connected_since" "$last_sync_at" "$now" > "$tmp"
+        printf '{"state":"%s","detail":"%s","connected":%s,"synchronized":%s,"connected_since":%s,"last_sync_at":%s,"updated_at":%s,%s}\n' "$1" "$2" "$connected" "$synchronized" "$connected_since" "$last_sync_at" "$now" "$config_json" > "$tmp"
     else
-        printf '{"state":"%s","connected":%s,"synchronized":%s,"connected_since":%s,"last_sync_at":%s,"updated_at":%s}\n' "$1" "$connected" "$synchronized" "$connected_since" "$last_sync_at" "$now" > "$tmp"
+        printf '{"state":"%s","connected":%s,"synchronized":%s,"connected_since":%s,"last_sync_at":%s,"updated_at":%s,%s}\n' "$1" "$connected" "$synchronized" "$connected_since" "$last_sync_at" "$now" "$config_json" > "$tmp"
     fi
     chmod 0644 "$tmp" && mv "$tmp" "$status"
 }
@@ -42,6 +45,8 @@ while :; do
     . /etc/flight-tracker/flight-tracker.conf
     enabled=$(sed -n 's/.*"enabled":\(true\|false\).*/\1/p' "$config" 2>/dev/null | head -n1)
     antenna=$(sed -n 's/.*"antenna_height_m":\([-0-9.]*\).*/\1/p' "$config" 2>/dev/null | head -n1)
+    terrain=$(sed -n 's/.*"terrain_m":\([-0-9.]*\).*/\1/p' "$config" 2>/dev/null | head -n1)
+    absolute=$(sed -n 's/.*"absolute_elevation_m":\([-0-9.]*\).*/\1/p' "$config" 2>/dev/null | head -n1)
     ellipsoid_altitude=$(sed -n 's/.*"ellipsoid_altitude_m":\([-0-9.]*\).*/\1/p' "$config" 2>/dev/null | head -n1)
     [ -n "$ellipsoid_altitude" ] || ellipsoid_altitude=190
     receiver_lat=$(sed -n 's/.*"receiver_lat":\([-0-9.]*\).*/\1/p' "$config" 2>/dev/null | head -n1)
